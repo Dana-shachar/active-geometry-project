@@ -1,10 +1,23 @@
 // SDF MANAGER FILE
 
-// local shape uniforms
+// ==========================================================
+// UNIFORMS & HELPERS
+// ==========================================================
 uniform int uShapeType;
 uniform float uWidth;
 uniform float uHeight;
-uniform vec3 uPosOffset; // to track the positional offset for moving shapes from js
+uniform vec3 uPosOffset;
+uniform int uIsSelected;
+
+// Bounding Frame math
+float sdBoundingFrame(vec3 p, vec3 b, float e) {
+    p = abs(p) - b;
+    vec3 q = abs(p + e) - e;
+    return min(min(
+        length(max(vec3(p.x, q.y, q.z), 0.0)) + min(max(p.x, max(q.y, q.z)), 0.0),
+        length(max(vec3(q.x, p.y, q.z), 0.0)) + min(max(q.x, max(p.y, q.z)), 0.0)),
+        length(max(vec3(q.x, q.y, p.z), 0.0)) + min(max(q.x, max(q.y, p.z)), 0.0));
+}
 
 
 // ==========================================================
@@ -37,30 +50,38 @@ float sdCylinder(vec3 pos, float cylHeight, float cylRadius) {
 }
 
 // ==========================================================
-// THE SCENE MAP (The "Switchboard")
+// 1. RAW GEOMETRY (shapeMap)
+// ==========================================================
+float shapeMap(vec3 localPos) {
+    if (uShapeType == 0) return sdSphere(localPos, uWidth);
+    if (uShapeType == 1) return sdBox(localPos, vec3(uWidth, uHeight, uWidth));
+    return sdCylinder(localPos, uHeight, uWidth);
+}
+
+// ==========================================================
+// 2. PROBE (getShapeBBox)
+// ==========================================================
+vec3 getShapeBBox() {
+    // For now, return analytic extents. In Stage 2, this will use
+    // binary searching to find edges of complex booleans.
+    if (uShapeType == 0) return vec3(uWidth, uWidth, uWidth);
+    return vec3(uWidth, uHeight, uWidth);
+}
+
+// ==========================================================
+// 3. SCENE ASSEMBLER (map)
 // ==========================================================
 float map(vec3 pos) {
-  // 1. DOMAIN PUSHING: Subtract the mouse offset from the incoming position
-  // This makes the object "move" with your drag.
-  vec3 movedPos = pos - uPosOffset;
+    vec3 localPos = pos - uPosOffset;
+    float shapeDis = shapeMap(localPos);
 
-  float rayDis = 0.0;
+    float finalDis = shapeDis;
 
-  // 2. CHOOSE THE SHAPE
-  if (uShapeType == 0) {
-      rayDis = sdSphere(movedPos, uWidth);
-  } else if (uShapeType == 1) {
-      rayDis = sdBox(movedPos, vec3(uWidth, uHeight, uWidth));
-  } else {
-      rayDis = sdCylinder(movedPos, uHeight, uWidth);
-  }
+    if (uIsSelected == 1) {
+        vec3 bbox = getShapeBBox();
+        float frameDis = sdBoundingFrame(localPos, bbox, 0.01);
+        finalDis = min(shapeDis, frameDis);
+    }
 
-  // 3. THE UNIT CELL BOUNDARY (Dashed Frame)
-  // We define a 1.0 size box that stays centered at 0,0,0
-  // even when you move the inner shape.
-  float boundary = sdBox(pos, vec3(0.5, 0.5, 0.5));
-
-  // For now, we return only rayDis.
-  // We'll combine the boundary in the next step so you can see it.
-  return rayDis;
+    return finalDis;
 }

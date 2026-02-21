@@ -4,7 +4,11 @@ uniform float uTime;
 // global shape uniforms
 uniform vec2 uResolution;
 uniform float uLightX;
+uniform float uLightY;
 uniform float uAmbientLight;
+uniform mat4  uCamMatrix;   // Three.js camera.matrixWorld — drives orbit
+uniform vec3  uCamPos;      // Three.js camera.position
+uniform float uFocalLen;    // derived from camera.fov — keeps perspective consistent
 
 
 // =========================================
@@ -28,7 +32,7 @@ vec3 getSurfaceNormal(vec3 pointOnSurface) {
 // =========================================
 vec3 calculateLighting(vec3 pointOnSurface, vec3 surfaceNormal) {
     // light direction
-    vec3 lightPosition = vec3(uLightX, 2.0, -3.0);
+    vec3 lightPosition = (uCamMatrix * vec4(uLightX, uLightY, 0.0, 1.0)).xyz;
 
     // Direction from the surface point to the light
     vec3 directionToLight = normalize(lightPosition - pointOnSurface);
@@ -48,9 +52,9 @@ void main() {
   vec2 uv = vUv * 2.0 - 1.0;
   uv.x *= uResolution.x / uResolution.y;
 
-  // 3. Raymarching Camera Setup
-  vec3 rayOrigin = vec3(0.0, 0.0, -2.0);        // Ray Origin
-  vec3 rayDirection = normalize(vec3(uv, 1.0)); // Ray Direction (Where you are looking)
+  // 3. Raymarching Camera Setup — driven by Three.js OrbitControls via uniforms
+  vec3 rayDirection = normalize((uCamMatrix * vec4(uv.x, uv.y, -uFocalLen, 0.0)).xyz);
+  vec3 rayOrigin    = uCamPos;
   float totalDistance = 0.0;                    // Total distance traveled by the ray
 
   // ===================================================

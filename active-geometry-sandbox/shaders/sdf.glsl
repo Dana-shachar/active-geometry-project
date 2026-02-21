@@ -9,14 +9,14 @@ uniform float uHeight;
 uniform vec3 uPosOffset;
 uniform int uIsSelected;
 
-// Bounding Frame math
-float sdBoundingFrame(vec3 p, vec3 b, float e) {
-    p = abs(p) - b;
-    vec3 q = abs(p + e) - e;
+// Bounding Box Frame: SDF for a wireframe box outline
+float sdBBoxFrame(vec3 ptPos, vec3 halfExtents, float edgeThickness) {
+    ptPos = abs(ptPos) - halfExtents;
+    vec3 sdEdgeZone = abs(ptPos + edgeThickness) - edgeThickness;
     return min(min(
-        length(max(vec3(p.x, q.y, q.z), 0.0)) + min(max(p.x, max(q.y, q.z)), 0.0),
-        length(max(vec3(q.x, p.y, q.z), 0.0)) + min(max(q.x, max(p.y, q.z)), 0.0)),
-        length(max(vec3(q.x, q.y, p.z), 0.0)) + min(max(q.x, max(q.y, p.z)), 0.0));
+        length(max(vec3(ptPos.x, sdEdgeZone.y, sdEdgeZone.z), 0.0)) + min(max(ptPos.x, max(sdEdgeZone.y, sdEdgeZone.z)), 0.0),
+        length(max(vec3(sdEdgeZone.x, ptPos.y, sdEdgeZone.z), 0.0)) + min(max(sdEdgeZone.x, max(ptPos.y, sdEdgeZone.z)), 0.0)),
+        length(max(vec3(sdEdgeZone.x, sdEdgeZone.y, ptPos.z), 0.0)) + min(max(sdEdgeZone.x, max(sdEdgeZone.y, ptPos.z)), 0.0));
 }
 
 
@@ -25,23 +25,30 @@ float sdBoundingFrame(vec3 p, vec3 b, float e) {
 // ==========================================================
 
 // Sphere: Checks length from center minus the size
-float sdSphere(vec3 pos, float sphSize) {
-  return length(pos) - sphSize;
+float sdSphere(vec3 ptPos, float sphSize) {
+  return length(ptPos) - sphSize;
 }
 
 // Box: Calculates distance using box-specific offsets
-float sdBox(vec3 pos, vec3 boxSize) {
+float sdBox(vec3 ptPos, vec3 boxSize) {
   // boxOffset measures how far we are from the box edges in each direction
-  vec3 boxOffset = abs(pos) - boxSize;
+  vec3 boxOffset = abs(ptPos) - boxSize;
   float boxExDis = length(max(boxOffset, 0.0));
   float boxInDis = min(max(boxOffset.x, max(boxOffset.y, boxOffset.z)), 0.0);
   return boxExDis + boxInDis;
 }
 
+// Ellipsoid: Non-uniform sphere scaled independently per axis
+float sdEllipsoid(vec3 ptPos, vec3 ellipRadii) {
+    float k0 = length(ptPos / ellipRadii);
+    float k1 = length(ptPos / (ellipRadii * ellipRadii));
+    return k0 * (k0 - 1.0) / k1;
+}
+
 // Cylinder: Uses cylinder-specific components and distances
-float sdCylinder(vec3 pos, float cylHeight, float cylRadius) {
+float sdCylinder(vec3 ptPos, float cylHeight, float cylRadius) {
   // cylComp handles the 2D projected distance
-  vec2 cylComp = abs(vec2(length(pos.xz), pos.y)) - vec2(cylRadius, cylHeight);
+  vec2 cylComp = abs(vec2(length(ptPos.xz), ptPos.y)) - vec2(cylRadius, cylHeight);
 
   // cylExDis is the distance outside, cylInDis is the distance inside (negative)
   float cylExDis = length(max(cylComp, 0.0));
@@ -55,15 +62,17 @@ float sdCylinder(vec3 pos, float cylHeight, float cylRadius) {
 float shapeMap(vec3 localPos) {
     if (uShapeType == 0) return sdSphere(localPos, uWidth);
     if (uShapeType == 1) return sdBox(localPos, vec3(uWidth, uHeight, uWidth));
-    return sdCylinder(localPos, uHeight, uWidth);
+    if (uShapeType == 2) return sdCylinder(localPos, uHeight, uWidth);
+    if (uShapeType == 3) return sdEllipsoid(localPos, vec3(uWidth, uHeight, uWidth));
+    return 1e10; // unknown shape: return nothing
 }
 
 // ==========================================================
 // 2. PROBE (getShapeBBox)
 // ==========================================================
 vec3 getShapeBBox() {
-    // For now, return analytic extents. In Stage 2, this will use
-    // binary searching to find edges of complex booleans.
+    // Returns conservative half-extents. In Stage 2 (booleans),
+    // this will return the union of both shapes' bounding boxes.
     if (uShapeType == 0) return vec3(uWidth, uWidth, uWidth);
     return vec3(uWidth, uHeight, uWidth);
 }
@@ -71,15 +80,15 @@ vec3 getShapeBBox() {
 // ==========================================================
 // 3. SCENE ASSEMBLER (map)
 // ==========================================================
-float map(vec3 pos) {
-    vec3 localPos = pos - uPosOffset;
+float map(vec3 worldPos) {
+    vec3 localPos = worldPos - uPosOffset;
     float shapeDis = shapeMap(localPos);
 
     float finalDis = shapeDis;
 
     if (uIsSelected == 1) {
         vec3 bbox = getShapeBBox();
-        float frameDis = sdBoundingFrame(localPos, bbox, 0.01);
+        float frameDis = sdBBoxFrame(localPos, bbox, 0.01);
         finalDis = min(shapeDis, frameDis);
     }
 

@@ -35,6 +35,23 @@ const gumball = new Gumball(camera, cameraControls);
 // mouse controls for dragging the shape (when selected)
 initMouseControls(settings, renderer.domElement, cameraControls);
 
+//==========================================================
+// KEYBOARD CAMERA CONTROLS
+//==========================================================
+// Hold ALT to pan instead of rotate
+function AltPressed(keyEvent) {
+    if (keyEvent.key !== 'Alt') return;
+    cameraControls.mouseButtons.LEFT = THREE.MOUSE.PAN;
+}
+
+function AltReleased(keyEvent) {
+    if (keyEvent.key !== 'Alt') return;
+    cameraControls.mouseButtons.LEFT = THREE.MOUSE.ROTATE;
+}
+
+window.addEventListener('keydown', AltPressed);
+window.addEventListener('keyup',   AltReleased);
+
 // Zoom slider → move camera closer/further along its current orbit direction
 zoomCtrl.onChange((zoomPercent) => {
     const targetDistance = defaultCameraDistance * 100 / zoomPercent;

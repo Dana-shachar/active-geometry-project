@@ -56,18 +56,20 @@ void main() {
   vec3 rayDirection = normalize((uCamMatrix * vec4(uv.x, uv.y, -uFocalLen, 0.0)).xyz);
   vec3 rayOrigin    = uCamPos;
   float totalDistance = 0.0;                    // Total distance traveled by the ray
+  float minLnDist     = 1e10;                   // Closest the ray came to any surface (for outline)
 
   // ===================================================
   // The Marching Ray Loop
   // ===================================================
   for(int i = 0; i < 80; i++) {
     vec3 currentPosition = rayOrigin + rayDirection * totalDistance;    // Current position along the ray
-    float distanceToSurface = map(currentPosition);                     // Distance to the closest surface
-    totalDistance += distanceToSurface;                                 // "March" forward by that distance
-    
+    float distToSurface  = map(currentPosition);                        // Distance to the closest surface
+    minLnDist     = min(minLnDist, distToSurface);                      // Track closest approach
+    totalDistance += distToSurface;                                     // "March" forward by that distance
+
    // If the distance is tiny=> surface hit=> stop walking:
-    if(distanceToSurface < 0.001 || totalDistance > 10.0) {
-        break; 
+    if(distToSurface < 0.001 || totalDistance > 10000.0) {
+        break;
     }
   }
 
@@ -76,11 +78,12 @@ void main() {
   // ===================================================
   vec3 pixelColor = vec3(0.0); // default Black (Background)  
     
-  if(totalDistance < 10.0) {
+  if(totalDistance < 10000.0) {
     vec3 pointOnSurface = rayOrigin + rayDirection * totalDistance;
     vec3 surfaceNormal = getSurfaceNormal(pointOnSurface);
-    
     pixelColor = calculateLighting(pointOnSurface, surfaceNormal);
+  } else if (uIsSelected == 1 && minLnDist < 0.002 * length(uCamPos - uPosOffset)) {
+    pixelColor = vec3(0.0, 0.784, 0.702);  // #00C8B3 — selection outline
   }
 
   gl_FragColor = vec4(pixelColor, 1.0);

@@ -14,11 +14,11 @@ import { Gumball } from './gumball.js';
 // Create the menu and establish the shared 'settings' object
 const { zoomCtrl } = initUI();
 settings.uIsSelected = 0;
-const defaultCameraDistance = 3;
+const defaultCameraDistance = 80;
 
 const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 100);
-camera.position.set(0, 0, 3);
+const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 10000);
+camera.position.set(0, 0, 80);
 camera.lookAt(0, 0, 0);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -26,14 +26,14 @@ renderer.setSize(window.innerWidth, window.innerHeight);
 document.body.appendChild(renderer.domElement);
 
 const cameraControls = new OrbitControls(camera, renderer.domElement);
-cameraControls.enableDamping = true;          // smooth deceleration on release
+cameraControls.enableDamping = true;          // smoothing deceleration on release
 cameraControls.dampingFactor = 0.05;
 cameraControls.mouseButtons  = { LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.PAN };
 
-const gumball = new Gumball(camera, cameraControls);
+const gumball = new Gumball(camera, cameraControls, settings);
 
 // mouse controls for dragging the shape (when selected)
-initMouseControls(settings, renderer.domElement, cameraControls);
+initMouseControls(settings, renderer.domElement, cameraControls, shapeHit, camera);
 
 //==========================================================
 // KEYBOARD CAMERA CONTROLS
@@ -52,6 +52,24 @@ function AltReleased(keyEvent) {
 window.addEventListener('keydown', AltPressed);
 window.addEventListener('keyup',   AltReleased);
 
+// Lock camera distance during rotate so dragging never changes zoom
+function lockRotate(event) {
+    if (event.button !== 0) return;
+    if (cameraControls.mouseButtons.LEFT !== THREE.MOUSE.ROTATE) return;
+    const dist = camera.position.distanceTo(cameraControls.target);
+    cameraControls.minDistance = dist;
+    cameraControls.maxDistance = dist;
+}
+
+function unlockRotate(event) {
+    if (event.button !== 0) return;
+    cameraControls.minDistance = 0;
+    cameraControls.maxDistance = Infinity;
+}
+
+renderer.domElement.addEventListener('mousedown', lockRotate);
+window.addEventListener('mouseup',               unlockRotate);
+
 // Zoom slider → move camera closer/further along its current orbit direction
 zoomCtrl.onChange((zoomPercent) => {
     const targetDistance = defaultCameraDistance * 100 / zoomPercent;
@@ -67,7 +85,7 @@ zoomCtrl.onChange((zoomPercent) => {
 const geometry = new THREE.PlaneGeometry(2, 2);
 
 // STITCHING: combine the SDF Manager (math) with the Fragment Engine (rendering)
-// The Manager MUST come first so the Fragment can "see" the map function.
+// The Manager MUST come first so the Fragment can "see" the map function!
 const finalFragmentShader = sdfManager + fragmentShader;
 
 // The ShaderMaterial allows to write custom GLSL code for how the surface should be rendered.
@@ -80,10 +98,14 @@ const material = new THREE.ShaderMaterial({
     uLightX: { value: settings.lightX },
     uLightY: { value: settings.lightY },
     uAmbientLight: { value: settings.ambientLight },
-    uShapeType: { value: settings.shapeType },
-    uWidth: { value: settings.width },
-    uHeight: { value: settings.height },
-    uPosOffset: { value: settings.posOffset },
+    uShapeType:    { value: settings.shapeType },
+    uWidth:        { value: settings.width },
+    uHeight:       { value: settings.height },
+    uDepth:        { value: settings.depth },
+    uCornerRadius: { value: settings.cornerRadius },
+    uCaps:         { value: 1 },
+    uPrismSides:   { value: 3 },
+    uPosOffset:    { value: settings.posOffset },
     uIsSelected: { value: 0 },
     uCamMatrix:  { value: camera.matrixWorld },   // live reference — auto-updates with orbit
     uCamPos:     { value: camera.position },       // live reference — auto-updates with orbit
@@ -103,9 +125,13 @@ function animate(time) {
     material.uniforms.uLightX.value = settings.lightX;
     material.uniforms.uLightY.value = settings.lightY;
     material.uniforms.uAmbientLight.value = settings.ambientLight;
-    material.uniforms.uShapeType.value = settings.shapeType;
-    material.uniforms.uWidth.value = settings.width;
-    material.uniforms.uHeight.value = settings.height;
+    material.uniforms.uShapeType.value    = settings.shapeType;
+    material.uniforms.uWidth.value        = settings.width;
+    material.uniforms.uHeight.value       = settings.height;
+    material.uniforms.uDepth.value        = settings.depth;
+    material.uniforms.uCornerRadius.value = settings.cornerRadius;
+    material.uniforms.uCaps.value         = settings.caps ? 1 : 0;
+    material.uniforms.uPrismSides.value   = settings.sides;
     material.uniforms.uTime.value = time * 0.001;
     material.uniforms.uIsSelected.value = settings.uIsSelected;
     material.uniforms.uFocalLen.value = 1.0 / Math.tan((camera.fov / 2) * Math.PI / 180);
@@ -113,7 +139,7 @@ function animate(time) {
     // Sync zoom slider to reflect scroll/orbit changes
     const currentDistance = camera.position.distanceTo(cameraControls.target);
     const currentZoom = Math.round(defaultCameraDistance * 100 / currentDistance);
-    const zoomRange = Math.max(10, Math.min(200, currentZoom));
+    const zoomRange = Math.max(10, Math.min(400, currentZoom));
     if (zoomRange !== settings.zoomLevel) {
         settings.zoomLevel = zoomRange;
         zoomCtrl.updateDisplay();
@@ -143,6 +169,28 @@ window.addEventListener('resize', () => {
 //==========================================================
 // CLICK SELECTION
 //==========================================================
+
+// This function casts a ray from the camera through the clicked pixel and checks if it intersects the shape's bounding box.
+function shapeHit(clientX, clientY) {
+    const mouseNdc = {
+        x:  (clientX / window.innerWidth)  * 2 - 1,
+        y: -(clientY / window.innerHeight) * 2 + 1
+    };
+    const aspect    = window.innerWidth / window.innerHeight;
+    const focalLen  = 1.0 / Math.tan((camera.fov / 2) * Math.PI / 180);
+    const rayOrigin = camera.position.clone();
+    const rayDir    = new THREE.Vector3(mouseNdc.x * aspect, mouseNdc.y, -focalLen)
+                          .transformDirection(camera.matrixWorld)
+                          .normalize();
+    const bboxHalfX = settings.width;
+    const bboxHalfZ = settings.shapeType === 1 ? settings.depth : settings.width;
+    const bboxHalfY = settings.shapeType === 0 ? settings.width : settings.height;
+    const bboxMin   = settings.posOffset.clone().sub(new THREE.Vector3(bboxHalfX, bboxHalfY, bboxHalfZ));
+    const bboxMax   = settings.posOffset.clone().add(new THREE.Vector3(bboxHalfX, bboxHalfY, bboxHalfZ));
+    return intersectBBox(rayOrigin, rayDir, bboxMin, bboxMax);
+}
+
+// Standard ray-box intersection test — returns true if ray hits the box, false if it misses
 function intersectBBox(rayOrigin, rayDir, bboxMin, bboxMax) {
     let rayEnter = (bboxMin.x - rayOrigin.x) / rayDir.x;
     let rayExit  = (bboxMax.x - rayOrigin.x) / rayDir.x;
@@ -164,28 +212,8 @@ function intersectBBox(rayOrigin, rayDir, bboxMin, bboxMax) {
     return true;
 }
 
-window.addEventListener('click', (event) => {
-    // 1. Normalize mouse to NDC
-    const mouse = {
-        x: (event.clientX / window.innerWidth) * 2 - 1,
-        y: -(event.clientY / window.innerHeight) * 2 + 1
-    };
-
-    // 2. Reconstruct ray (matches fragment.glsl camera)
-    const aspect = window.innerWidth / window.innerHeight;
-    const rayOrigin = new THREE.Vector3(0, 0, -2);
-    const rayDir = new THREE.Vector3(mouse.x * aspect, mouse.y, 1).normalize();
-
-    // 3. Shape-aware bbox extents (mirrors getShapeBBox in sdf.glsl)
-    const bboxHalfX = settings.width;
-    const bboxHalfY = settings.shapeType === 0 ? settings.width : settings.height;
-    const bboxMin = settings.posOffset.clone().sub(new THREE.Vector3(bboxHalfX, bboxHalfY, bboxHalfX));
-    const bboxMax = settings.posOffset.clone().add(new THREE.Vector3(bboxHalfX, bboxHalfY, bboxHalfX));
-
-    // 4. Zone test
-    const isHit = intersectBBox(rayOrigin, rayDir, bboxMin, bboxMax);
-
-    // 5. Update selection state
-    settings.uIsSelected = isHit ? 1 : 0;
+// Click event on the canvas to toggle selection state based on whether the shape was hit
+renderer.domElement.addEventListener('click', (event) => {
+    settings.uIsSelected = shapeHit(event.clientX, event.clientY) ? 1 : 0;
     material.uniforms.uIsSelected.value = settings.uIsSelected;
 });

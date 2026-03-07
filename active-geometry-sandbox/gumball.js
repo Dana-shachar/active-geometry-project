@@ -1,12 +1,13 @@
 import * as THREE from 'three';
 
 // Gumball: SVG axes indicator that rotates live with the camera,
-// plus view preset buttons (TOP / FRONT / SIDE / PERSPECTIVE).
-// Usage: const gumball = new Gumball(camera, cameraControls);  → call gumball.update() each frame.
+// plus view preset buttons (TOP / FRONT / SIDE / PERSPECTIVE) and a RESET button.
+// Usage: const gumball = new Gumball(camera, cameraControls, settings);  → call gumball.update() each frame.
 export class Gumball {
-    constructor(camera, cameraControls) {
+    constructor(camera, cameraControls, settings) {
         this.camera          = camera;
         this.cameraControls  = cameraControls;
+        this.settings        = settings;
         this.armLength       = 28;
         this.labelOffset     = 38;
         this.centerX         = 40;
@@ -91,18 +92,48 @@ export class Gumball {
             container.appendChild(btn);
         }
 
+        const resetBtn = document.createElement('button');
+        resetBtn.textContent = 'RESET';
+        resetBtn.style.cssText = `
+            width: 100%;
+            padding: 4px 0;
+            margin-top: 6px;
+            cursor: pointer;
+            font-size: 10px;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+            background: #1f1f1f;
+            color: #ebebeb;
+            border: 1px solid #424242;
+            border-radius: 2px;
+        `;
+        resetBtn.addEventListener('mouseenter', () => { resetBtn.style.background = '#4f4f4f'; });
+        resetBtn.addEventListener('mouseleave', () => { resetBtn.style.background = '#1f1f1f'; });
+        resetBtn.addEventListener('click', () => this.ResetScene());
+        container.appendChild(resetBtn);
+
         document.body.appendChild(container);
+    }
+
+    ResetScene() {
+        this.settings.posOffset.set(0, 0, 0);
+        this.camera.position.set(0, 0, 80);
+        this.camera.up.set(0, 1, 0);
+        this.cameraControls.target.set(0, 0, 0);
+        this.cameraControls.update();
     }
 
     snapToView(preset) {
         const orbitDist = this.camera.position.distanceTo(this.cameraControls.target);
         const diagDist  = orbitDist / Math.sqrt(3);
 
+        // Offset each preset by the current orbit target so the camera always frames
+        // whatever the orbit is centered on, not the world origin.
+        const orbitCenter = this.cameraControls.target;
         const presetMap = {
-            top:         { position: new THREE.Vector3(0, orbitDist, 0),            up: new THREE.Vector3(0, 0, -1) },
-            front:       { position: new THREE.Vector3(0, 0, orbitDist),            up: new THREE.Vector3(0, 1,  0) },
-            side:        { position: new THREE.Vector3(orbitDist, 0, 0),            up: new THREE.Vector3(0, 1,  0) },
-            perspective: { position: new THREE.Vector3(diagDist, diagDist, diagDist), up: new THREE.Vector3(0, 1, 0) },
+            top:         { position: new THREE.Vector3(0, orbitDist, 0).add(orbitCenter),             up: new THREE.Vector3(0, 0, -1) },
+            front:       { position: new THREE.Vector3(0, 0, orbitDist).add(orbitCenter),             up: new THREE.Vector3(0, 1,  0) },
+            side:        { position: new THREE.Vector3(orbitDist, 0, 0).add(orbitCenter),             up: new THREE.Vector3(0, 1,  0) },
+            perspective: { position: new THREE.Vector3(diagDist, diagDist, diagDist).add(orbitCenter), up: new THREE.Vector3(0, 1,  0) },
         };
 
         const snapTarget = presetMap[preset];

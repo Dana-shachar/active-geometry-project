@@ -1,4 +1,4 @@
-// Testing 2
+// Testing a simple vertex shader that passes UV coordinates to the fragment shader
 
 varying vec2 vUv;
 

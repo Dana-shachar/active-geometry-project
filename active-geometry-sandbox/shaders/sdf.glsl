@@ -1,23 +1,23 @@
 // SDF MANAGER FILE
 
 // ==========================================================
+// CONSTANTS
+// ==========================================================
+#define PI 3.14159265359
+
+// ==========================================================
 // UNIFORMS & HELPERS
 // ==========================================================
-uniform int uShapeType;
+uniform int   uShapeType;
 uniform float uWidth;
 uniform float uHeight;
-uniform vec3 uPosOffset;
-uniform int uIsSelected;
+uniform float uDepth;         // box Z half-extent (independent from width)
+uniform float uCornerRadius;  // rounding: box edges, or cylinder cap hemisphere radius
+uniform int   uCaps;          // 1 = caps on (default), 0 = open ends
+uniform int   uPrismSides;    // N-gon prism: number of polygon sides (3–20)
+uniform vec3  uPosOffset;
+uniform int   uIsSelected;
 
-// Bounding Box Frame: SDF for a wireframe box outline
-float sdBBoxFrame(vec3 ptPos, vec3 halfExtents, float edgeThickness) {
-    ptPos = abs(ptPos) - halfExtents;
-    vec3 sdEdgeZone = abs(ptPos + edgeThickness) - edgeThickness;
-    return min(min(
-        length(max(vec3(ptPos.x, sdEdgeZone.y, sdEdgeZone.z), 0.0)) + min(max(ptPos.x, max(sdEdgeZone.y, sdEdgeZone.z)), 0.0),
-        length(max(vec3(sdEdgeZone.x, ptPos.y, sdEdgeZone.z), 0.0)) + min(max(sdEdgeZone.x, max(ptPos.y, sdEdgeZone.z)), 0.0)),
-        length(max(vec3(sdEdgeZone.x, sdEdgeZone.y, ptPos.z), 0.0)) + min(max(sdEdgeZone.x, max(sdEdgeZone.y, ptPos.z)), 0.0));
-}
 
 
 // ==========================================================
@@ -31,11 +31,18 @@ float sdSphere(vec3 ptPos, float sphSize) {
 
 // Box: Calculates distance using box-specific offsets
 float sdBox(vec3 ptPos, vec3 boxSize) {
-  // boxOffset measures how far we are from the box edges in each direction
-  vec3 boxOffset = abs(ptPos) - boxSize;
-  float boxExDis = length(max(boxOffset, 0.0));
-  float boxInDis = min(max(boxOffset.x, max(boxOffset.y, boxOffset.z)), 0.0);
-  return boxExDis + boxInDis;
+  vec3 boxOffset  = abs(ptPos) - boxSize;
+  float boxExDist = length(max(boxOffset, 0.0));
+  float boxInDist = min(max(boxOffset.x, max(boxOffset.y, boxOffset.z)), 0.0);
+  return boxExDist + boxInDist;
+}
+
+// Rounded Box: sdBox with edges/corners carved to a given radius.
+// halfExtents are the outer bounds — rounding is inset from them.
+float sdRoundBox(vec3 ptPos, vec3 halfExtents, float radius) {
+  float boxRadius = min(radius, min(halfExtents.x, min(halfExtents.y, halfExtents.z)));
+  vec3 boxOffset  = abs(ptPos) - halfExtents + boxRadius;
+  return length(max(boxOffset, 0.0)) + min(max(boxOffset.x, max(boxOffset.y, boxOffset.z)), 0.0) - boxRadius;
 }
 
 // Ellipsoid: Non-uniform sphere scaled independently per axis
@@ -47,13 +54,53 @@ float sdEllipsoid(vec3 ptPos, vec3 ellipRadii) {
 
 // Cylinder: Uses cylinder-specific components and distances
 float sdCylinder(vec3 ptPos, float cylHeight, float cylRadius) {
-  // cylComp handles the 2D projected distance
-  vec2 cylComp = abs(vec2(length(ptPos.xz), ptPos.y)) - vec2(cylRadius, cylHeight);
+  vec2 cylComp    = abs(vec2(length(ptPos.xz), ptPos.y)) - vec2(cylRadius, cylHeight);
+  float cylExDist = length(max(cylComp, 0.0));
+  float cylInDist = min(max(cylComp.x, cylComp.y), 0.0);
+  return cylExDist + cylInDist;
+}
 
-  // cylExDis is the distance outside, cylInDis is the distance inside (negative)
-  float cylExDis = length(max(cylComp, 0.0));
-  float cylInDis = min(max(cylComp.x, cylComp.y), 0.0);
-  return cylExDis + cylInDis;
+// Rounded Cylinder: cylinder with filleted cap edges.
+// cornerRadius = 0 → flat caps (identical to sdCylinder); cornerRadius = cylRadius → full capsule.
+// Outer dimensions stay at cylRadius × cylHeight regardless of rounding.
+float sdRoundCyl(vec3 ptPos, float cylRadius, float cornerRadius, float cylHeight) {
+  float cylRoundRadius = min(cornerRadius, min(cylRadius, cylHeight)); // clamp to shape limits
+  vec2 cylComp    = abs(vec2(length(ptPos.xz), ptPos.y)) - vec2(cylRadius - cylRoundRadius, cylHeight - cylRoundRadius);
+  float cylExDist = length(max(cylComp, 0.0));
+  float cylInDist = min(max(cylComp.x, cylComp.y), 0.0);
+  return cylExDist + cylInDist - cylRoundRadius;
+}
+
+// Open Cylinder: lateral surface only, no flat end caps.
+float sdOpenCylinder(vec3 ptPos, float cylHeight, float cylRadius) {
+  float cylRadial = length(ptPos.xz) - cylRadius;
+  float cylAxial  = abs(ptPos.y) - cylHeight;
+  // Outside height range: guide ray to nearest rim — no flat cap surface
+  if (cylAxial > 0.0) return length(vec2(max(cylRadial, 0.0), cylAxial));
+  return cylRadial;
+}
+
+// N-gon Prism: 2D signed distance to a regular polygon in the XZ plane.
+// Uses IQ's symmetry-fold: maps any point into a canonical sector, then tests one edge.
+// priCircumRad = distance from center to vertex. priSideCount >= 3.
+float sdPolygon2D(vec2 priRadialPos, float priCircumRad, int priSideCount) {
+    float priHalfAngle   = PI / float(priSideCount);           // half the angle of one sector
+    vec2  priEdgeCossin  = vec2(cos(priHalfAngle), sin(priHalfAngle)); // direction toward edge midpoint
+    float priSectorAngle = mod(atan(priRadialPos.y, priRadialPos.x), 2.0 * priHalfAngle) - priHalfAngle; // fold into canonical sector
+    // abs(sin(...)) mirrors the bottom half of the sector onto the top half. 
+    // This allows us to calculate the distance to just ONE half of ONE edge segment, 
+    // rather than looping through all N sides of the polygon.
+    vec2  priFoldedPos = length(priRadialPos) * vec2(cos(priSectorAngle), abs(sin(priSectorAngle)));          
+          priFoldedPos   -= priCircumRad * priEdgeCossin;        // shift origin to edge midpoint
+          priFoldedPos.y += clamp(-priFoldedPos.y, 0.0, priCircumRad * priEdgeCossin.y); // clamp to edge length
+    return length(priFoldedPos) * sign(priFoldedPos.x);        // signed: negative inside, positive outside
+}
+
+// N-gon Prism: extruded regular polygon, capped ends.
+float sdNgonPrism(vec3 ptPos, float priCircumRad, float priHalfHeight, int priSideCount) {
+    float priDist2D    = sdPolygon2D(ptPos.xz, priCircumRad, priSideCount); // 2D polygon distance in XZ
+    float priDistAxial = abs(ptPos.y) - priHalfHeight;                      // signed distance from cap plane
+    return length(max(vec2(priDist2D, priDistAxial), 0.0)) + min(max(priDist2D, priDistAxial), 0.0);
 }
 
 // ==========================================================
@@ -61,9 +108,27 @@ float sdCylinder(vec3 ptPos, float cylHeight, float cylRadius) {
 // ==========================================================
 float shapeMap(vec3 localPos) {
     if (uShapeType == 0) return sdSphere(localPos, uWidth);
-    if (uShapeType == 1) return sdBox(localPos, vec3(uWidth, uHeight, uWidth));
-    if (uShapeType == 2) return sdCylinder(localPos, uHeight, uWidth);
+    if (uShapeType == 1) {
+        vec3 halfExtents = vec3(uWidth, uHeight, uDepth);
+        if (uCornerRadius > 0.0) return sdRoundBox(localPos, halfExtents, uCornerRadius);
+        return sdBox(localPos, halfExtents);
+    }
+    if (uShapeType == 2) {
+        if (uCaps == 0)           return sdOpenCylinder(localPos, uHeight, uWidth);
+        if (uCornerRadius > 0.0)  return sdRoundCyl(localPos, uWidth, uCornerRadius, uHeight);
+        return sdCylinder(localPos, uHeight, uWidth);
+    }
     if (uShapeType == 3) return sdEllipsoid(localPos, vec3(uWidth, uHeight, uWidth));
+    if (uShapeType == 4) {
+        if (uCaps == 0) {
+            // Open ends: lateral faces only, no flat caps
+            float priDist2D    = sdPolygon2D(localPos.xz, uWidth, uPrismSides);
+            float priDistAxial = abs(localPos.y) - uHeight;
+            if (priDistAxial > 0.0) return length(vec2(max(priDist2D, 0.0), priDistAxial)); // outside height: guide to rim
+            return priDist2D;
+        }
+        return sdNgonPrism(localPos, uWidth, uHeight, uPrismSides);
+    }
     return 1e10; // unknown shape: return nothing
 }
 
@@ -74,6 +139,9 @@ vec3 getShapeBBox() {
     // Returns conservative half-extents. In Stage 2 (booleans),
     // this will return the union of both shapes' bounding boxes.
     if (uShapeType == 0) return vec3(uWidth, uWidth, uWidth);
+    if (uShapeType == 1) return vec3(uWidth, uHeight, uDepth);
+    if (uShapeType == 2) return vec3(uWidth, uHeight, uWidth); // sdRoundCyl keeps same outer dims as sdCylinder
+    if (uShapeType == 4) return vec3(uWidth, uHeight, uWidth); // polygon fits inside circumscribed cylinder
     return vec3(uWidth, uHeight, uWidth);
 }
 
@@ -82,15 +150,5 @@ vec3 getShapeBBox() {
 // ==========================================================
 float map(vec3 worldPos) {
     vec3 localPos = worldPos - uPosOffset;
-    float shapeDis = shapeMap(localPos);
-
-    float finalDis = shapeDis;
-
-    if (uIsSelected == 1) {
-        vec3 bbox = getShapeBBox();
-        float frameDis = sdBBoxFrame(localPos, bbox, 0.01);
-        finalDis = min(shapeDis, frameDis);
-    }
-
-    return finalDis;
+    return shapeMap(localPos);
 }

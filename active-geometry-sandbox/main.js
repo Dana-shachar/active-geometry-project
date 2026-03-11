@@ -105,6 +105,10 @@ const material = new THREE.ShaderMaterial({
     uCornerRadius: { value: settings.cornerRadius },
     uCaps:         { value: 1 },
     uPrismSides:   { value: 3 },
+    uPolyType:     { value: 0 },
+    uTubeRadius:   { value: settings.tubeRadius },
+    uStepHeight:   { value: settings.stepHeight },
+    uTurns:        { value: settings.turns },
     uPosOffset:    { value: settings.posOffset },
     uIsSelected: { value: 0 },
     uCamMatrix:  { value: camera.matrixWorld },   // live reference — auto-updates with orbit
@@ -132,6 +136,10 @@ function animate(time) {
     material.uniforms.uCornerRadius.value = settings.cornerRadius;
     material.uniforms.uCaps.value         = settings.caps ? 1 : 0;
     material.uniforms.uPrismSides.value   = settings.sides;
+    material.uniforms.uPolyType.value     = settings.polyType;
+    material.uniforms.uTubeRadius.value   = settings.tubeRadius;
+    material.uniforms.uStepHeight.value   = settings.stepHeight;
+    material.uniforms.uTurns.value        = settings.turns;
     material.uniforms.uTime.value = time * 0.001;
     material.uniforms.uIsSelected.value = settings.uIsSelected;
     material.uniforms.uFocalLen.value = 1.0 / Math.tan((camera.fov / 2) * Math.PI / 180);
@@ -182,9 +190,10 @@ function shapeHit(clientX, clientY) {
     const rayDir    = new THREE.Vector3(mouseNdc.x * aspect, mouseNdc.y, -focalLen)
                           .transformDirection(camera.matrixWorld)
                           .normalize();
-    const bboxHalfX = settings.width;
-    const bboxHalfZ = settings.shapeType === 1 ? settings.depth : settings.width;
-    const bboxHalfY = settings.shapeType === 0 ? settings.width : settings.height;
+    const bboxHalfX = settings.shapeType === 6 ? settings.width + settings.tubeRadius : settings.width;
+    const bboxHalfZ = settings.shapeType === 1 ? settings.depth : bboxHalfX;
+    const bboxHalfY = settings.shapeType === 6 ? settings.turns * settings.stepHeight * 0.5 + settings.tubeRadius
+                    : (settings.shapeType === 0 || settings.shapeType === 5) ? settings.width : settings.height;
     const bboxMin   = settings.posOffset.clone().sub(new THREE.Vector3(bboxHalfX, bboxHalfY, bboxHalfZ));
     const bboxMax   = settings.posOffset.clone().add(new THREE.Vector3(bboxHalfX, bboxHalfY, bboxHalfZ));
     return intersectBBox(rayOrigin, rayDir, bboxMin, bboxMax);

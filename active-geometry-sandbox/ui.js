@@ -11,6 +11,10 @@ export const settings = {
     cornerRadius: 0.0,   // rounding: box edges or cylinder cap hemisphere radius
     caps: true,          // cylinder / prism: caps on (true) or open ends (false)
     sides: 3,            // N-gon prism: number of polygon sides (3–20)
+    polyType: 0,         // polyhedron sub-type: 0=Tetrahedron, 1=Octahedron, 2=Icosahedron, 3=Dodecahedron
+    tubeRadius: 2,       // helix: wire cross-section radius (mm)
+    stepHeight: 10,      // helix: axial rise per full turn (mm)
+    turns: 3,            // helix: number of turns
     lockProportions: true,
     ambientLight: 0.1,
     lightX: 2.0,
@@ -98,13 +102,17 @@ export function initUI() {
         }
     });
     
-    local.add(settings, 'lockProportions').name('Lock proportions');
+    const lockCtrl = local.add(settings, 'lockProportions').name('Lock proportions');
 
     // Shape-specific controls — visibility managed by updateLocalControls
     const depthCtrl        = local.add(settings, 'depth', 0.1, 100).name('Depth (mm)');
     const cornerRadiusCtrl = local.add(settings, 'cornerRadius', 0.0, 50).name('Corner radius (mm)');
     const capsCtrl         = local.add(settings, 'caps').name('Cap Shape?');
     const sidesCtrl        = local.add(settings, 'sides', 3, 20, 1).name('Sides');
+    const polyTypeCtrl     = local.add(settings, 'polyType', { Tetrahedron: 0, Octahedron: 1, Icosahedron: 2, Dodecahedron: 3 }).name('Type');
+    const tubeRadiusCtrl  = local.add(settings, 'tubeRadius', 0.1, 20).name('Tube radius (mm)');
+    const stepHeightCtrl  = local.add(settings, 'stepHeight', 1, 50).name('Step height (mm)');
+    const turnsCtrl       = local.add(settings, 'turns', 1, 10, 0.5).name('Turns');
 
     // When caps toggle changes: show/hide corner radius (cylinder only)
     capsCtrl.onChange((val) => {
@@ -118,16 +126,34 @@ export function initUI() {
         cornerRadiusCtrl.hide();
         capsCtrl.hide();
         sidesCtrl.hide();
+        polyTypeCtrl.hide();
+        tubeRadiusCtrl.hide();
+        stepHeightCtrl.hide();
+        turnsCtrl.hide();
 
-        if (shapeType === 1) {        // Box: depth + corner radius always available
-            depthCtrl.show();
-            cornerRadiusCtrl.show();
-        } else if (shapeType === 2) { // Cylinder: caps toggle + corner radius when caps are on
-            capsCtrl.show();
-            if (settings.caps) cornerRadiusCtrl.show();
-        } else if (shapeType === 4) { // N-gon Prism: sides slider + caps toggle
-            sidesCtrl.show();
-            capsCtrl.show();
+        if (shapeType === 5) { // Polyhedron: uniform scale — height and lock irrelevant
+            hCtrl.hide();
+            lockCtrl.hide();
+            polyTypeCtrl.show();
+        } else if (shapeType === 6) { // Helix: height derived from turns × stepHeight
+            hCtrl.hide();
+            lockCtrl.hide();
+            tubeRadiusCtrl.show();
+            stepHeightCtrl.show();
+            turnsCtrl.show();
+        } else {
+            hCtrl.show();
+            lockCtrl.show();
+            if (shapeType === 1) {        // Box: depth + corner radius always available
+                depthCtrl.show();
+                cornerRadiusCtrl.show();
+            } else if (shapeType === 2) { // Cylinder: caps toggle + corner radius when caps are on
+                capsCtrl.show();
+                if (settings.caps) cornerRadiusCtrl.show();
+            } else if (shapeType === 4) { // N-gon Prism: sides slider + caps toggle
+                sidesCtrl.show();
+                capsCtrl.show();
+            }
         }
     }
 
@@ -141,7 +167,7 @@ export function initUI() {
     // =============================================
     const navigation = gui.addFolder('Navigation');
     navigation.add(settings, 'stage', ['unit_cell', 'locking', 'lattice', 'simulation']).name('Current Stage');
-    navigation.add(settings, 'shapeType', { Sphere: 0, Box: 1, Cylinder: 2, Ellipsoid: 3, 'N-gon Prism': 4 })
+    navigation.add(settings, 'shapeType', { Sphere: 0, Box: 1, Cylinder: 2, Ellipsoid: 3, 'N-gon Prism': 4, Polyhedron: 5, Helix: 6 })
         .name('Base Shape')
         .onChange(updateLocalControls);
 

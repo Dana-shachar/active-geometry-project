@@ -138,15 +138,20 @@ float sdDodecahedron(vec3 polyPtPos, float polyCircumRad) {
     return max(max(dodFaceYZ, dodFaceXZ), dodFaceXY) - dodInrad;
 }
 
+// Smooth minimum — blends two SDF values within radius k to remove Voronoi creases.
+float smin(float a, float b, float k) {
+    float h = max(k - abs(a - b), 0.0) / k;
+    return min(a, b) - h * h * k * 0.25;
+}
+
 // Helix: tube wound around Y axis. Adapted from IQ shadertoy.com/view/ftyBRd
 // helCoilRad = axis-to-centerline radius. helTubeRad = wire cross-section radius.
 // helStepHeight = axial rise per full turn. helTurns = number of turns (finite length).
-// NOTE: approximate SDF — valid when tubeRad < stepHeight / 2 (coils not overlapping).
-// Shader-side clamps enforce this even if UI sliders go out of range.
+// Infinite IQ helix clipped by a horizontal slab to give flat oval faces at each tip.
+// smin blending between candidates eliminates Voronoi shading creases on the body.
 float sdHelix(vec3 helPtPos, float helCoilRad, float helTubeRad, float helStepHeight, float helTurns) {
-    // Enforce geometric stability: clamp params to valid range before any math.
-    helStepHeight = min(helStepHeight, helCoilRad * 2.5);
-    helTubeRad    = min(helTubeRad,    helStepHeight * 0.48);
+    // Only tube overlap limit enforced — step height can go as high as needed.
+    helTubeRad = min(helTubeRad, helStepHeight * 0.48);
 
     vec2  helLine     = vec2(helStepHeight, 6.283185 * helCoilRad);
     vec2  helLineDir  = vec2(helLine.y, -helLine.x);
@@ -156,25 +161,27 @@ float sdHelix(vec3 helPtPos, float helCoilRad, float helTubeRad, float helStepHe
     vec2  helMapPt    = vec2(helPtPos.y, helCoilRad * atan(helPtPos.x, helPtPos.z));
     vec2  helUnwrapPt = vec2(dot(helMapPt, helLineDir), dot(helMapPt, helLine));
 
-    // round() is seam-safe. Check 3 candidates covers all Voronoi boundaries.
     float coilNearest = round(helUnwrapPt.x / helPeriod);
+    float blendK      = helTubeRad * 0.2; // Smooths Voronoi body glitches
 
-    vec2  centerA = (helLine * helUnwrapPt.y + helLineDir * (coilNearest - 1.0) * helPeriod) / helLineSq;
-    centerA.y    /= helCoilRad;
-    vec3  wrapA   = vec3(sin(centerA.y) * helCoilRad, centerA.x, cos(centerA.y) * helCoilRad);
+    // 5-coil window: prevents Z-fractures at extreme step heights where N±1 alone
+    // can miss the true nearest coil. smin continuously smooths Voronoi seams.
+    float infDist = 1e10;
+    for (int i = -2; i <= 2; i++) {
+        vec2 center = (helLine * helUnwrapPt.y + helLineDir * (coilNearest + float(i)) * helPeriod) / helLineSq;
+        center.y   /= helCoilRad;
+        vec3 wrap   = vec3(sin(center.y) * helCoilRad, center.x, cos(center.y) * helCoilRad);
+        float d     = length(helPtPos - wrap);
+        infDist     = (i == -2) ? d : smin(infDist, d, blendK);
+    }
+    infDist -= helTubeRad;
 
-    vec2  centerB = (helLine * helUnwrapPt.y + helLineDir * coilNearest * helPeriod) / helLineSq;
-    centerB.y    /= helCoilRad;
-    vec3  wrapB   = vec3(sin(centerB.y) * helCoilRad, centerB.x, cos(centerB.y) * helCoilRad);
-
-    vec2  centerC = (helLine * helUnwrapPt.y + helLineDir * (coilNearest + 1.0) * helPeriod) / helLineSq;
-    centerC.y    /= helCoilRad;
-    vec3  wrapC   = vec3(sin(centerC.y) * helCoilRad, centerC.x, cos(centerC.y) * helCoilRad);
-
-    float infDist       = min(min(length(helPtPos - wrapA), length(helPtPos - wrapB)), length(helPtPos - wrapC)) - helTubeRad;
-
+    // Horizontal slab — 0.6 multiplier balances flat mating face vs. trench depth.
     float helHalfHeight = helTurns * helStepHeight * 0.5;
-    return max(infDist, abs(helPtPos.y) - helHalfHeight);
+    float flatCapSlab   = abs(helPtPos.y) - (helHalfHeight + helTubeRad * 0.6);
+
+    // Scale down to prevent ray overstepping at extreme pitch distortion (Lipschitz safety).
+    return max(infDist, flatCapSlab) * 0.6;
 }
 
 // N-gon Prism: 2D signed distance to a regular polygon in the XZ plane.

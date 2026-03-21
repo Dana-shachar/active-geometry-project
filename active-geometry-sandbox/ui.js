@@ -111,8 +111,8 @@ export function initUI() {
     const sidesCtrl        = local.add(settings, 'sides', 3, 20, 1).name('Sides');
     const polyTypeCtrl     = local.add(settings, 'polyType', { Tetrahedron: 0, Octahedron: 1, Icosahedron: 2, Dodecahedron: 3 }).name('Type');
     const tubeRadiusCtrl  = local.add(settings, 'tubeRadius', 0.1, 20).name('Tube radius (mm)');
-    const stepHeightCtrl  = local.add(settings, 'stepHeight', 1, 50).name('Step height (mm)');
-    const turnsCtrl       = local.add(settings, 'turns', 1, 10, 0.5).name('Turns');
+    const stepHeightCtrl  = local.add(settings, 'stepHeight', 1, 100).name('Step height (mm)');
+    const turnsCtrl       = local.add(settings, 'turns', 0.01, 10, 0.01).name('Turns');
 
     // When caps toggle changes: show/hide corner radius (cylinder only)
     capsCtrl.onChange((val) => {

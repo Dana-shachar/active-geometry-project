@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { getActiveShape } from './shapeManager.js';
 
 // Each ring is perpendicular to its own axis (standard rotation handle convention).
 // X ring wraps in YZ plane, Y ring wraps in XZ plane, Z ring wraps in XY plane.
@@ -167,21 +168,22 @@ export class TransformHandles {
     }
 
     update() {
-        const isSelected = this.settings.uIsSelected === 1;
-        this.svg.style.display = isSelected ? '' : 'none';
-        if (!isSelected) {
+        const isSelected  = this.settings.uIsSelected === 1;
+        const activeShape = getActiveShape();
+        this.svg.style.display = (isSelected && activeShape) ? '' : 'none';
+        if (!isSelected || !activeShape) {
             this._activeKey  = null;
             this._activeType = null;
             return;
         }
 
-        const origin       = this.settings.posOffset;
+        const origin       = activeShape.posOffset;
         const originScreen = this._project(origin);
         const mouseX   = this._mousePos.x;
         const mouseY   = this._mousePos.y;
-        const worldArrow = this.settings.width * ARROW_SCALE;
-        const worldRing  = this.settings.width * RING_SCALE;
-        const worldCube  = this.settings.width * CUBE_SCALE;
+        const worldArrow = activeShape.width * ARROW_SCALE;
+        const worldRing  = activeShape.width * RING_SCALE;
+        const worldCube  = activeShape.width * CUBE_SCALE;
 
         // === PASS 1: compute geometry + distances for every handle ===
         // Collect all candidates so we can find the single closest one before drawing.
@@ -293,7 +295,7 @@ export class TransformHandles {
             // Rotation wedge — filled arc from angle 0 to current drag angle, shown only during ring drag
             const isActiveRingDrag = this._isDragging && this._activeType === 'ring' && this._dragAxisKey === cfg.key;
             if (isActiveRingDrag) {
-                const wedgeAngle  = this._dragStartValue - this.settings.rotation[this._dragAxisKey];
+                const wedgeAngle  = this._dragStartValue - getActiveShape().rotation[this._dragAxisKey];
                 const wedgeSteps  = Math.max(2, Math.ceil(Math.abs(wedgeAngle) / (5 * Math.PI / 180)));
                 const wedgePoints = [`${originScreen.x.toFixed(1)},${originScreen.y.toFixed(1)}`];
                 for (let step = 0; step <= wedgeSteps; step++) {
@@ -332,20 +334,21 @@ export class TransformHandles {
         this._isDragging  = true;
         this._dragAxisKey = this._hoveredKey;
 
-        const axisToSetting = { x: 'width', y: 'height', z: 'depth' };
+        const axisToParam  = { x: 'width', y: 'height', z: 'depth' };
+        const dragShape    = getActiveShape();
         if (this._hoveredType === 'ring') {
-            this._dragStartValue = this.settings.rotation[this._hoveredKey];
+            this._dragStartValue = dragShape.rotation[this._hoveredKey];
         } else if (this._hoveredType === 'cube') {
-            this._dragStartValue = this.settings[axisToSetting[this._hoveredKey]];
+            this._dragStartValue = dragShape[axisToParam[this._hoveredKey]];
         } else if (this._hoveredType === 'center') {
-            this._dragStartValue        = this.settings.width;
+            this._dragStartValue        = dragShape.width;
             this._dragCenterStartValues = {
-                width:  this.settings.width,
-                height: this.settings.height,
-                depth:  this.settings.depth,
+                width:  dragShape.width,
+                height: dragShape.height,
+                depth:  dragShape.depth,
             };
         } else {
-            this._dragStartValue = this.settings.posOffset[this._hoveredKey];
+            this._dragStartValue = dragShape.posOffset[this._hoveredKey];
         }
         this._dragCumulativeDot = 0;
         this.settings.handleDragActive = true;
@@ -377,8 +380,9 @@ export class TransformHandles {
                        : axisDir.y;
         this._dragCumulativeDot += mouseEvent.movementX * dragDirX + mouseEvent.movementY * dragDirY;
 
-        const cmdHeld = mouseEvent.metaKey || mouseEvent.ctrlKey;
-        const axisToSetting = { x: 'width', y: 'height', z: 'depth' };
+        const cmdHeld      = mouseEvent.metaKey || mouseEvent.ctrlKey;
+        const axisToParam  = { x: 'width', y: 'height', z: 'depth' };
+        const moveShape    = getActiveShape();
         let newValue;
         let labelText;
 
@@ -387,11 +391,11 @@ export class TransformHandles {
             newValue = cmdHeld
                 ? Math.round((this._dragStartValue + rawAngle) / SNAP_ROTATE_RAD) * SNAP_ROTATE_RAD
                 : this._dragStartValue + rawAngle;
-            this.settings.rotation[this._dragAxisKey] = newValue;
+            moveShape.rotation[this._dragAxisKey] = newValue;
             const angleDeg = (newValue * 180 / Math.PI).toFixed(1);
             labelText = `${this._dragAxisKey.toUpperCase()}: ${angleDeg}°`;
         } else if (this._activeType === 'cube') {
-            const settingKey     = axisToSetting[this._dragAxisKey];
+            const paramKey       = axisToParam[this._dragAxisKey];
             const rawScale       = this._dragCumulativeDot * DRAG_SENSITIVITY_SCALE;
             const snapIncrement  = this._dragStartValue * SNAP_SCALE_FACTOR;
             const scaledValue    = this._dragStartValue * (1 + rawScale);
@@ -399,16 +403,16 @@ export class TransformHandles {
                 ? Math.round(scaledValue / snapIncrement) * snapIncrement
                 : scaledValue;
             newValue = Math.max(0.1, newValue);
-            this.settings[settingKey] = newValue;
-            labelText = `${settingKey.charAt(0).toUpperCase()}: ${newValue.toFixed(1)}`;
+            moveShape[paramKey] = newValue;
+            labelText = `${paramKey.charAt(0).toUpperCase()}: ${newValue.toFixed(1)}`;
         } else if (this._activeType === 'center') {
             const rawScale    = this._dragCumulativeDot * DRAG_SENSITIVITY_SCALE;
             const scaleFactor = cmdHeld
                 ? Math.round((1 + rawScale) / SNAP_SCALE_FACTOR) * SNAP_SCALE_FACTOR
                 : 1 + rawScale;
-            this.settings.width  = Math.max(0.1, this._dragCenterStartValues.width  * scaleFactor);
-            this.settings.height = Math.max(0.1, this._dragCenterStartValues.height * scaleFactor);
-            this.settings.depth  = Math.max(0.1, this._dragCenterStartValues.depth  * scaleFactor);
+            moveShape.width  = Math.max(0.1, this._dragCenterStartValues.width  * scaleFactor);
+            moveShape.height = Math.max(0.1, this._dragCenterStartValues.height * scaleFactor);
+            moveShape.depth  = Math.max(0.1, this._dragCenterStartValues.depth  * scaleFactor);
             newValue  = scaleFactor;
             labelText = `Scale: ${scaleFactor.toFixed(2)}×`;
         } else {
@@ -416,7 +420,7 @@ export class TransformHandles {
             newValue = cmdHeld
                 ? Math.round((this._dragStartValue + rawDisplacement) / SNAP_MOVE_MM) * SNAP_MOVE_MM
                 : this._dragStartValue + rawDisplacement;
-            this.settings.posOffset[this._dragAxisKey] = newValue;
+            moveShape.posOffset[this._dragAxisKey] = newValue;
             labelText = `${this._dragAxisKey.toUpperCase()}: ${newValue.toFixed(1)}`;
         }
 

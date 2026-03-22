@@ -88,7 +88,7 @@ void main() {
     vec3 pointOnSurface = rayOrigin + rayDirection * totalDistance;
     vec3 surfaceNormal = getSurfaceNormal(pointOnSurface);
     pixelColor = calculateLighting(pointOnSurface, surfaceNormal);
-  } else if (uIsSelected == 1 && minLnDist < 0.002 * length(uCamPos - uPosOffset)) {
+  } else if (uIsSelected == 1 && minLnDist < 0.002 * length(uCamPos - uActiveShapePosOffset)) {
     pixelColor = vec3(0.0, 0.784, 0.702);  // #00C8B3 — selection outline
   } else if (abs(rayDirection.y) > 0.0001) {
     // Grid floor at y=0 — intersect ray with the XZ plane

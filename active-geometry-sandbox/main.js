@@ -1,13 +1,15 @@
 import * as THREE from 'three';
 import vertexShader from './shaders/vertex.glsl';
 import fragmentShader from './shaders/fragment.glsl';
-// IMPORT THE SDF MANAGER AS RAW TEXT
-import sdfManager from './shaders/sdf.glsl?raw';
+import sdfGlsl from './shaders/sdf.glsl?raw';
+import shapeMapperGlsl from './shaders/shapeMapper.glsl?raw';
 
-import { settings, initUI, initMouseControls } from './ui.js';
+import { settings, initUI, initMouseControls } from './js/uiSettings.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { Gumball } from './gumball.js';
-import { TransformHandles } from './transformHandles.js';
+import { Gumball } from './js/gumball.js';
+import { TransformHandles } from './js/transformHandles.js';
+import { buildShaderBlock, buildUniforms, syncShapeUniforms } from './js/shapeBuilder.js';
+import { addShape, shapeList, activeShapeIndex, shapeListVersion, getActiveShape, setActiveShape } from './js/shapeManager.js';
 
 //==========================================================
 // CORE ENGINE SETUP
@@ -40,7 +42,7 @@ const transformHandles = new TransformHandles(camera, settings, cameraControls, 
 const _rotMat4 = new THREE.Matrix4();
 
 // mouse controls for dragging the shape (when selected)
-initMouseControls(settings, renderer.domElement, cameraControls, shapeHit, camera);
+initMouseControls(settings, renderer.domElement, cameraControls, (x, y) => findHitShape(x, y) >= 0, camera);
 
 //==========================================================
 // KEYBOARD CAMERA CONTROLS
@@ -85,43 +87,38 @@ zoomCtrl.onChange((zoomPercent) => {
 });
 
 //==========================================================
+// SHAPE LIST SETUP
+//==========================================================
+addShape('box');
+
+//==========================================================
 // GEOMETRY & MATERIAL
 //==========================================================
 
 // A simple plane that covers the entire view. The raymarching shader will run for every pixel on this plane.
 const geometry = new THREE.PlaneGeometry(2, 2);
 
-// STITCHING: combine the SDF Manager (math) with the Fragment Engine (rendering)
-// The Manager MUST come first so the Fragment can "see" the map function!
-const finalFragmentShader = sdfManager + fragmentShader;
+// Builds the full fragment shader string from the current shape list.
+// Called once at startup and again whenever a shape is added or removed.
+function buildFragmentShader() {
+    return sdfGlsl + shapeMapperGlsl + buildShaderBlock(shapeList) + fragmentShader;
+}
 
 // The ShaderMaterial allows to write custom GLSL code for how the surface should be rendered.
+// Shape uniforms are generated from the current shapeList and merged with scene-level uniforms.
 const material = new THREE.ShaderMaterial({
   vertexShader,
-  fragmentShader: finalFragmentShader,
+  fragmentShader: buildFragmentShader(),
   uniforms: {
-    uTime: { value: 0 },
+    uTime:       { value: 0 },
     uResolution: { value: new THREE.Vector2(window.innerWidth, window.innerHeight) },
-    uLightX: { value: settings.lightX },
-    uLightY: { value: settings.lightY },
+    uLightX:     { value: settings.lightX },
+    uLightY:     { value: settings.lightY },
     uAmbientLight: { value: settings.ambientLight },
-    uShapeType:    { value: settings.shapeType },
-    uWidth:        { value: settings.width },
-    uHeight:       { value: settings.height },
-    uDepth:        { value: settings.depth },
-    uCornerRadius: { value: settings.cornerRadius },
-    uCaps:         { value: 1 },
-    uPrismSides:   { value: 3 },
-    uPolyType:     { value: 0 },
-    uTubeRadius:   { value: settings.tubeRadius },
-    uStepHeight:   { value: settings.stepHeight },
-    uTurns:        { value: settings.turns },
-    uPosOffset:    { value: settings.posOffset },
-    uRotation:     { value: new THREE.Matrix3() },   // identity — updated each frame from settings.rotation
-    uIsSelected: { value: 0 },
     uCamMatrix:  { value: camera.matrixWorld },   // live reference — auto-updates with orbit
     uCamPos:     { value: camera.position },       // live reference — auto-updates with orbit
-    uFocalLen:   { value: 1.0 / Math.tan((camera.fov / 2) * Math.PI / 180) }
+    uFocalLen:   { value: 1.0 / Math.tan((camera.fov / 2) * Math.PI / 180) },
+    ...buildUniforms(shapeList),                  // per-shape uniforms + uIsSelected + uActiveShapePosOffset
   }
 });
 
@@ -129,28 +126,38 @@ const material = new THREE.ShaderMaterial({
 const mesh = new THREE.Mesh(geometry, material);
 scene.add(mesh);
 
+// Tracks the last known shapeListVersion — used to detect when a recompile is needed.
+let lastShapeListVersion = shapeListVersion;
+
+// Rebuilds the fragment shader and uniforms when shapes are added or removed.
+// Called from animate() when shapeListVersion changes.
+function recompileShader() {
+    const newShapeUniforms = buildUniforms(shapeList);
+    material.fragmentShader = buildFragmentShader();
+    // Merge new per-shape uniforms into the existing material uniforms object.
+    // Camera and lighting uniforms are preserved; shape uniforms are fully replaced.
+    Object.assign(material.uniforms, newShapeUniforms);
+    material.needsUpdate = true;
+    lastShapeListVersion = shapeListVersion;
+}
+
 //==========================================================
 // ANIMATION & SYNC SYSTEM
 //==========================================================
 function animate(time) {
-    // This section syncs UI settings to the GPU every frame
-    material.uniforms.uLightX.value = settings.lightX;
-    material.uniforms.uLightY.value = settings.lightY;
+    // Recompile shader if the shape list changed (shape added or removed)
+    if (shapeListVersion !== lastShapeListVersion) recompileShader();
+
+    // Sync scene-level uniforms to GPU every frame
+    material.uniforms.uLightX.value       = settings.lightX;
+    material.uniforms.uLightY.value       = settings.lightY;
     material.uniforms.uAmbientLight.value = settings.ambientLight;
-    material.uniforms.uShapeType.value    = settings.shapeType;
-    material.uniforms.uWidth.value        = settings.width;
-    material.uniforms.uHeight.value       = settings.height;
-    material.uniforms.uDepth.value        = settings.depth;
-    material.uniforms.uCornerRadius.value = settings.cornerRadius;
-    material.uniforms.uCaps.value         = settings.caps ? 1 : 0;
-    material.uniforms.uPrismSides.value   = settings.sides;
-    material.uniforms.uPolyType.value     = settings.polyType;
-    material.uniforms.uTubeRadius.value   = settings.tubeRadius;
-    material.uniforms.uStepHeight.value   = settings.stepHeight;
-    material.uniforms.uTurns.value        = settings.turns;
-    material.uniforms.uTime.value = time * 0.001;
-    material.uniforms.uIsSelected.value = settings.uIsSelected;
-    material.uniforms.uFocalLen.value = 1.0 / Math.tan((camera.fov / 2) * Math.PI / 180);
+    material.uniforms.uTime.value         = time * 0.001;
+    material.uniforms.uIsSelected.value   = settings.uIsSelected;
+    material.uniforms.uFocalLen.value     = 1.0 / Math.tan((camera.fov / 2) * Math.PI / 180);
+
+    // Sync all shape params + rotation matrices to GPU (loops over shapeList)
+    syncShapeUniforms(shapeList, material.uniforms, activeShapeIndex, _rotMat4);
 
     // Sync zoom slider to reflect scroll/orbit changes
     const currentDistance = camera.position.distanceTo(cameraControls.target);
@@ -160,10 +167,6 @@ function animate(time) {
         settings.zoomLevel = zoomRange;
         zoomCtrl.updateDisplay();
     }
-
-    // Sync rotation to GPU — store inverse (transpose) so shader can use it directly
-    _rotMat4.makeRotationFromEuler(settings.rotation);
-    material.uniforms.uRotation.value.setFromMatrix4(_rotMat4).transpose();
 
     cameraControls.update();
     renderer.render(scene, camera);
@@ -191,8 +194,9 @@ window.addEventListener('resize', () => {
 // CLICK SELECTION
 //==========================================================
 
-// This function casts a ray from the camera through the clicked pixel and checks if it intersects the shape's bounding box.
-function shapeHit(clientX, clientY) {
+// Casts a ray from the camera through the clicked pixel and checks if it
+// intersects the bounding box of a given shape.
+function shapeHit(clientX, clientY, shape) {
     const mouseNdc = {
         x:  (clientX / window.innerWidth)  * 2 - 1,
         y: -(clientY / window.innerHeight) * 2 + 1
@@ -203,13 +207,24 @@ function shapeHit(clientX, clientY) {
     const rayDir    = new THREE.Vector3(mouseNdc.x * aspect, mouseNdc.y, -focalLen)
                           .transformDirection(camera.matrixWorld)
                           .normalize();
-    const bboxHalfX = settings.shapeType === 6 ? settings.width + settings.tubeRadius : settings.width;
-    const bboxHalfZ = settings.shapeType === 1 ? settings.depth : bboxHalfX;
-    const bboxHalfY = settings.shapeType === 6 ? settings.turns * settings.stepHeight * 0.5 + settings.tubeRadius
-                    : (settings.shapeType === 0 || settings.shapeType === 5) ? settings.width : settings.height;
-    const bboxMin   = settings.posOffset.clone().sub(new THREE.Vector3(bboxHalfX, bboxHalfY, bboxHalfZ));
-    const bboxMax   = settings.posOffset.clone().add(new THREE.Vector3(bboxHalfX, bboxHalfY, bboxHalfZ));
+
+    const bboxHalfX = shape.type === 'helix'  ? shape.width + shape.tubeRadius : shape.width;
+    const bboxHalfZ = shape.type === 'box'    ? shape.depth : bboxHalfX;
+    const bboxHalfY = shape.type === 'helix'  ? shape.turns * shape.stepHeight * 0.5 + shape.tubeRadius
+                    : (shape.type === 'sphere' || shape.type === 'polyhedron') ? shape.width
+                    : shape.height;
+
+    const bboxMin = shape.posOffset.clone().sub(new THREE.Vector3(bboxHalfX, bboxHalfY, bboxHalfZ));
+    const bboxMax = shape.posOffset.clone().add(new THREE.Vector3(bboxHalfX, bboxHalfY, bboxHalfZ));
     return intersectBBox(rayOrigin, rayDir, bboxMin, bboxMax);
+}
+
+// Loops over all shapes and returns the index of the first one the ray hits, or -1.
+function findHitShape(clientX, clientY) {
+    for (let i = 0; i < shapeList.length; i++) {
+        if (shapeHit(clientX, clientY, shapeList[i])) return i;
+    }
+    return -1;
 }
 
 // Standard ray-box intersection test — returns true if ray hits the box, false if it misses
@@ -234,10 +249,12 @@ function intersectBBox(rayOrigin, rayDir, bboxMin, bboxMax) {
     return true;
 }
 
-// Click event on the canvas to toggle selection state based on whether the shape was hit.
-// Handle clicks are checked first — if a handle consumes the click, skip shape selection.
+// Click event on the canvas: handle clicks take priority, then shape selection.
+// Sets the active shape index and updates the selection uniform.
 renderer.domElement.addEventListener('click', (event) => {
     if (transformHandles.handleClick()) return;
-    settings.uIsSelected = shapeHit(event.clientX, event.clientY) ? 1 : 0;
+    const hitIndex = findHitShape(event.clientX, event.clientY);
+    setActiveShape(hitIndex);
+    settings.uIsSelected = hitIndex >= 0 ? 1 : 0;
     material.uniforms.uIsSelected.value = settings.uIsSelected;
 });

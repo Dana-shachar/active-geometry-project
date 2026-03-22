@@ -1,5 +1,6 @@
 import GUI from 'lil-gui';
 import * as THREE from 'three';
+import { getActiveShape } from './shapeManager.js';
 
 // Shared State
 export const settings = {
@@ -165,18 +166,23 @@ export function initUI() {
     const transformControls = local.addFolder('transformation controls');
     const toGroundActions = {
         toGround: () => {
+            const shape = getActiveShape();
+            if (!shape) return;
             const shapeHalfHeight =
-                settings.shapeType === 0 ? settings.width                                          // Sphere
-              : settings.shapeType === 5 ? settings.width                                          // Polyhedron
-              : settings.shapeType === 6 ? settings.turns * settings.stepHeight * 0.5
-                                           + settings.tubeRadius                                   // Helix
-              : settings.height;                                                                    // Box / Cylinder / Ellipsoid / Prism
-            settings.posOffset.y = shapeHalfHeight;
+                shape.type === 'sphere'     ? shape.width
+              : shape.type === 'polyhedron' ? shape.width
+              : shape.type === 'helix'      ? shape.turns * shape.stepHeight * 0.5 + shape.tubeRadius
+              : shape.height;
+            shape.posOffset.y = shapeHalfHeight;
         }
     };
     transformControls.add(toGroundActions, 'toGround').name('To Ground');
     const resetRotationActions = {
-        resetRotation: () => { settings.rotation.set(0, 0, 0); }
+        resetRotation: () => {
+            const shape = getActiveShape();
+            if (!shape) return;
+            shape.rotation.set(0, 0, 0);
+        }
     };
     transformControls.add(resetRotationActions, 'resetRotation').name('Reset Rotation');
     transformControls.close();

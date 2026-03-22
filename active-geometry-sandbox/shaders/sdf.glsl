@@ -5,24 +5,6 @@
 // ==========================================================
 #define PI 3.14159265359
 
-// ==========================================================
-// UNIFORMS & HELPERS
-// ==========================================================
-uniform int   uShapeType;
-uniform float uWidth;
-uniform float uHeight;
-uniform float uDepth;         // box Z half-extent (independent from width)
-uniform float uCornerRadius;  // rounding: box edges, or cylinder cap hemisphere radius
-uniform int   uCaps;          // 1 = caps on (default), 0 = open ends
-uniform int   uPrismSides;    // N-gon prism: number of polygon sides (3–20)
-uniform int   uPolyType;      // polyhedron sub-type: 0=Tetrahedron, 1=Octahedron, 2=Icosahedron, 3=Dodecahedron
-uniform float uTubeRadius;   // helix: wire cross-section radius
-uniform float uStepHeight;   // helix: axial rise per full turn
-uniform float uTurns;        // helix: number of turns (controls total height)
-uniform vec3  uPosOffset;
-uniform mat3  uRotation;   // inverse rotation applied to localPos before SDF evaluation
-uniform int   uIsSelected;
-
 
 
 // ==========================================================
@@ -208,62 +190,3 @@ float sdNgonPrism(vec3 ptPos, float priCircumRad, float priHalfHeight, int priSi
     return length(max(vec2(priDist2D, priDistAxial), 0.0)) + min(max(priDist2D, priDistAxial), 0.0);
 }
 
-// ==========================================================
-// 1. RAW GEOMETRY (shapeMap)
-// ==========================================================
-float shapeMap(vec3 localPos) {
-    if (uShapeType == 0) return sdSphere(localPos, uWidth);
-    if (uShapeType == 1) {
-        vec3 halfExtents = vec3(uWidth, uHeight, uDepth);
-        if (uCornerRadius > 0.0) return sdRoundBox(localPos, halfExtents, uCornerRadius);
-        return sdBox(localPos, halfExtents);
-    }
-    if (uShapeType == 2) {
-        if (uCaps == 0)           return sdOpenCylinder(localPos, uHeight, uWidth);
-        if (uCornerRadius > 0.0)  return sdRoundCyl(localPos, uWidth, uCornerRadius, uHeight);
-        return sdCylinder(localPos, uHeight, uWidth);
-    }
-    if (uShapeType == 3) return sdEllipsoid(localPos, vec3(uWidth, uHeight, uWidth));
-    if (uShapeType == 4) {
-        if (uCaps == 0) {
-            // Open ends: lateral faces only, no flat caps
-            float priDist2D    = sdPolygon2D(localPos.xz, uWidth, uPrismSides);
-            float priDistAxial = abs(localPos.y) - uHeight;
-            if (priDistAxial > 0.0) return length(vec2(max(priDist2D, 0.0), priDistAxial)); // outside height: guide to rim
-            return priDist2D;
-        }
-        return sdNgonPrism(localPos, uWidth, uHeight, uPrismSides);
-    }
-    if (uShapeType == 5) {
-        if (uPolyType == 0) return sdTetrahedron(localPos, uWidth);
-        if (uPolyType == 1) return sdOctahedron(localPos, uWidth);
-        if (uPolyType == 2) return sdIcosahedron(localPos, uWidth);
-        if (uPolyType == 3) return sdDodecahedron(localPos, uWidth);
-        return 1e10;
-    }
-    if (uShapeType == 6) return sdHelix(localPos, uWidth, uTubeRadius, uStepHeight, uTurns);
-    return 1e10; // unknown shape: return nothing
-}
-
-// ==========================================================
-// 2. PROBE (getShapeBBox)
-// ==========================================================
-vec3 getShapeBBox() {
-    // Returns conservative half-extents. In Stage 2 (booleans),
-    // this will return the union of both shapes' bounding boxes.
-    if (uShapeType == 0) return vec3(uWidth, uWidth, uWidth);
-    if (uShapeType == 1) return vec3(uWidth, uHeight, uDepth);
-    if (uShapeType == 2) return vec3(uWidth, uHeight, uWidth); // sdRoundCyl keeps same outer dims as sdCylinder
-    if (uShapeType == 4) return vec3(uWidth, uHeight, uWidth); // polygon fits inside circumscribed cylinder
-    if (uShapeType == 5) return vec3(uWidth, uWidth, uWidth);  // polyhedron fits inside circumscribed sphere
-    if (uShapeType == 6) return vec3(uWidth + uTubeRadius, uTurns * uStepHeight * 0.5 + uTubeRadius, uWidth + uTubeRadius); // helix: coilRad+tubeRad laterally, half total height + tubeRad axially
-    return vec3(uWidth, uHeight, uWidth);
-}
-
-// ==========================================================
-// 3. SCENE ASSEMBLER (map)
-// ==========================================================
-float map(vec3 worldPos) {
-    vec3 localPos = uRotation * (worldPos - uPosOffset);
-    return shapeMap(localPos);
-}

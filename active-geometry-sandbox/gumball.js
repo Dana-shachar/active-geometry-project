@@ -93,7 +93,7 @@ export class Gumball {
         }
 
         const resetBtn = document.createElement('button');
-        resetBtn.textContent = 'RESET';
+        resetBtn.textContent = 'RESET VIEW';
         resetBtn.style.cssText = `
             width: 100%;
             padding: 4px 0;
@@ -115,8 +115,9 @@ export class Gumball {
     }
 
     ResetScene() {
+        const perspDist = 80 / Math.sqrt(3);  // matches defaultPerspDist in main.js
         this.settings.posOffset.set(0, 0, 0);
-        this.camera.position.set(0, 0, 80);
+        this.camera.position.set(perspDist, perspDist, perspDist);
         this.camera.up.set(0, 1, 0);
         this.cameraControls.target.set(0, 0, 0);
         this.cameraControls.update();

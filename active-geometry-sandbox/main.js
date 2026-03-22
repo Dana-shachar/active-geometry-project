@@ -7,6 +7,7 @@ import sdfManager from './shaders/sdf.glsl?raw';
 import { settings, initUI, initMouseControls } from './ui.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { Gumball } from './gumball.js';
+import { TransformHandles } from './transformHandles.js';
 
 //==========================================================
 // CORE ENGINE SETUP
@@ -14,11 +15,13 @@ import { Gumball } from './gumball.js';
 // Create the menu and establish the shared 'settings' object
 const { zoomCtrl } = initUI();
 settings.uIsSelected = 0;
+settings.rotation = new THREE.Euler(0, 0, 0);
 const defaultCameraDistance = 80;
+const defaultPerspDist = defaultCameraDistance / Math.sqrt(3);  // equal x/y/z — matches PERSPECTIVE preset
 
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 10000);
-camera.position.set(0, 0, 80);
+camera.position.set(defaultPerspDist, defaultPerspDist, defaultPerspDist);
 camera.lookAt(0, 0, 0);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -31,6 +34,10 @@ cameraControls.dampingFactor = 0.05;
 cameraControls.mouseButtons  = { LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.PAN };
 
 const gumball = new Gumball(camera, cameraControls, settings);
+const transformHandles = new TransformHandles(camera, settings, cameraControls, renderer.domElement);
+
+// Cached matrix to avoid per-frame allocations when syncing rotation to GPU
+const _rotMat4 = new THREE.Matrix4();
 
 // mouse controls for dragging the shape (when selected)
 initMouseControls(settings, renderer.domElement, cameraControls, shapeHit, camera);
@@ -110,6 +117,7 @@ const material = new THREE.ShaderMaterial({
     uStepHeight:   { value: settings.stepHeight },
     uTurns:        { value: settings.turns },
     uPosOffset:    { value: settings.posOffset },
+    uRotation:     { value: new THREE.Matrix3() },   // identity — updated each frame from settings.rotation
     uIsSelected: { value: 0 },
     uCamMatrix:  { value: camera.matrixWorld },   // live reference — auto-updates with orbit
     uCamPos:     { value: camera.position },       // live reference — auto-updates with orbit
@@ -153,9 +161,14 @@ function animate(time) {
         zoomCtrl.updateDisplay();
     }
 
+    // Sync rotation to GPU — store inverse (transpose) so shader can use it directly
+    _rotMat4.makeRotationFromEuler(settings.rotation);
+    material.uniforms.uRotation.value.setFromMatrix4(_rotMat4).transpose();
+
     cameraControls.update();
     renderer.render(scene, camera);
-    gumball.update(); // after render — this ensures it appears on top of the raymarched object
+    gumball.update();
+    transformHandles.update();
     requestAnimationFrame(animate);
 }
 
@@ -221,8 +234,10 @@ function intersectBBox(rayOrigin, rayDir, bboxMin, bboxMax) {
     return true;
 }
 
-// Click event on the canvas to toggle selection state based on whether the shape was hit
+// Click event on the canvas to toggle selection state based on whether the shape was hit.
+// Handle clicks are checked first — if a handle consumes the click, skip shape selection.
 renderer.domElement.addEventListener('click', (event) => {
+    if (transformHandles.handleClick()) return;
     settings.uIsSelected = shapeHit(event.clientX, event.clientY) ? 1 : 0;
     material.uniforms.uIsSelected.value = settings.uIsSelected;
 });

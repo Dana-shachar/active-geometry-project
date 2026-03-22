@@ -21,6 +21,7 @@ export const settings = {
     lightY: 2.0,
     posOffset: new THREE.Vector3(0, 0, 0),
     zoomLevel: 100,
+    handleDragActive: false,  // true while a transform handle arrow is being dragged
 };
 
 export function initMouseControls(settings, canvas, cameraControls, shapeHit, camera) {
@@ -44,7 +45,7 @@ export function initMouseControls(settings, canvas, cameraControls, shapeHit, ca
     }
 
     function ShapeDragged(dragEvent) {
-        if (!isDragging) return;
+        if (!isDragging || settings.handleDragActive) return;
         // Only commit to drag once mouse has moved past the threshold
         const moveDistPx = Math.hypot(dragEvent.clientX - dragStartX, dragEvent.clientY - dragStartY);
         if (moveDistPx <= dragThreshold) return; // still in click range — let orbit handle it
@@ -160,7 +161,25 @@ export function initUI() {
     // Wireframe placeholders
     local.addFolder('boolean operations').close();
     local.addFolder('moving controls').close();
-    local.addFolder('transformation controls').close();
+
+    const transformControls = local.addFolder('transformation controls');
+    const toGroundActions = {
+        toGround: () => {
+            const shapeHalfHeight =
+                settings.shapeType === 0 ? settings.width                                          // Sphere
+              : settings.shapeType === 5 ? settings.width                                          // Polyhedron
+              : settings.shapeType === 6 ? settings.turns * settings.stepHeight * 0.5
+                                           + settings.tubeRadius                                   // Helix
+              : settings.height;                                                                    // Box / Cylinder / Ellipsoid / Prism
+            settings.posOffset.y = shapeHalfHeight;
+        }
+    };
+    transformControls.add(toGroundActions, 'toGround').name('To Ground');
+    const resetRotationActions = {
+        resetRotation: () => { settings.rotation.set(0, 0, 0); }
+    };
+    transformControls.add(resetRotationActions, 'resetRotation').name('Reset Rotation');
+    transformControls.close();
 
     // =============================================
     //Section 3: Navigation (Bottom)

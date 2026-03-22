@@ -76,14 +76,44 @@ void main() {
   // ===================================================
   // Drawing the result
   // ===================================================
-  vec3 pixelColor = vec3(0.0); // default Black (Background)  
-    
+  vec3 pixelColor = vec3(0.0); // default Black (Background)
+
+  // Post-loop convergence check: rays near flat/sharp silhouettes can exhaust all
+  // iterations without truly hitting the surface. Re-evaluate SDF at final position —
+  // if still above threshold, the ray didn't converge and should be treated as a miss.
+  vec3 finalPos = rayOrigin + rayDirection * totalDistance;
+  if (totalDistance < 10000.0 && map(finalPos) > 0.05) totalDistance = 1e10;
+
   if(totalDistance < 10000.0) {
     vec3 pointOnSurface = rayOrigin + rayDirection * totalDistance;
     vec3 surfaceNormal = getSurfaceNormal(pointOnSurface);
     pixelColor = calculateLighting(pointOnSurface, surfaceNormal);
   } else if (uIsSelected == 1 && minLnDist < 0.002 * length(uCamPos - uPosOffset)) {
     pixelColor = vec3(0.0, 0.784, 0.702);  // #00C8B3 — selection outline
+  } else if (abs(rayDirection.y) > 0.0001) {
+    // Grid floor at y=0 — intersect ray with the XZ plane
+    float gridFloorT = -rayOrigin.y / rayDirection.y;
+    if (gridFloorT > 0.0) {
+      vec2 gridCoord = (rayOrigin + rayDirection * gridFloorT).xz;
+
+      // fwidth measures how fast gridCoord changes per pixel — keeps lines 1px wide
+      // regardless of zoom level or perspective foreshortening
+      vec2 minorDeriv = fwidth(gridCoord / 10.0);
+      vec2 minorGrid  = abs(fract(gridCoord / 10.0 - 0.5) - 0.5) / minorDeriv;
+      float minorLine = 1.0 - min(min(minorGrid.x, minorGrid.y), 1.0);
+      minorLine *= clamp(1.0 - max(minorDeriv.x, minorDeriv.y) * 2.0, 0.0, 1.0);
+
+      vec2 majorDeriv = fwidth(gridCoord / 100.0);
+      vec2 majorGrid  = abs(fract(gridCoord / 100.0 - 0.5) - 0.5) / majorDeriv;
+      float majorLine = 1.0 - min(min(majorGrid.x, majorGrid.y), 1.0);
+      majorLine *= clamp(1.0 - max(majorDeriv.x, majorDeriv.y) * 2.0, 0.0, 1.0);
+
+      float gridIntensity = clamp(minorLine * 0.2 + majorLine * 0.3, 0.0, 0.3);
+
+      // Fade grid out with distance so it doesn't clutter the far background
+      float gridFade    = clamp(1.0 - gridFloorT / 400.0, 0.0, 1.0);
+      pixelColor        = vec3(gridIntensity * gridFade);
+    }
   }
 
   gl_FragColor = vec4(pixelColor, 1.0);

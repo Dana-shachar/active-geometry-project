@@ -20,6 +20,7 @@ uniform float uTubeRadius;   // helix: wire cross-section radius
 uniform float uStepHeight;   // helix: axial rise per full turn
 uniform float uTurns;        // helix: number of turns (controls total height)
 uniform vec3  uPosOffset;
+uniform mat3  uRotation;   // inverse rotation applied to localPos before SDF evaluation
 uniform int   uIsSelected;
 
 
@@ -263,6 +264,6 @@ vec3 getShapeBBox() {
 // 3. SCENE ASSEMBLER (map)
 // ==========================================================
 float map(vec3 worldPos) {
-    vec3 localPos = worldPos - uPosOffset;
+    vec3 localPos = uRotation * (worldPos - uPosOffset);
     return shapeMap(localPos);
 }

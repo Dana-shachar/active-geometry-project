@@ -4,7 +4,8 @@ import fragmentShader from './shaders/fragment.glsl';
 import sdfGlsl from './shaders/sdf.glsl?raw';
 import shapeMapperGlsl from './shaders/shapeMapper.glsl?raw';
 
-import { settings, initUI, initMouseControls } from './js/uiSettings.js';
+import { settings, initMouseControls } from './js/uiSettings.js';
+import { initPanels, updatePanels } from './js/uiDesign.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { Gumball } from './js/gumball.js';
 import { TransformHandles } from './js/transformHandles.js';
@@ -14,10 +15,7 @@ import { addShape, shapeList, activeShapeIndex, shapeListVersion, getActiveShape
 //==========================================================
 // CORE ENGINE SETUP
 //==========================================================
-// Create the menu and establish the shared 'settings' object
-const { zoomCtrl } = initUI();
 settings.uIsSelected = 0;
-settings.rotation = new THREE.Euler(0, 0, 0);
 const defaultCameraDistance = 80;
 const defaultPerspDist = defaultCameraDistance / Math.sqrt(3);  // equal x/y/z — matches PERSPECTIVE preset
 
@@ -35,7 +33,11 @@ cameraControls.enableDamping = true;          // smoothing deceleration on relea
 cameraControls.dampingFactor = 0.05;
 cameraControls.mouseButtons  = { LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.PAN };
 
-const gumball = new Gumball(camera, cameraControls, settings);
+const gumball = new Gumball(camera, cameraControls, settings, (zoomPercent) => {
+    const targetDistance = defaultCameraDistance * 100 / zoomPercent;
+    const orbitDirection = camera.position.clone().sub(cameraControls.target).normalize();
+    camera.position.copy(cameraControls.target).addScaledVector(orbitDirection, targetDistance);
+});
 const transformHandles = new TransformHandles(camera, settings, cameraControls, renderer.domElement);
 
 // Cached matrix to avoid per-frame allocations when syncing rotation to GPU
@@ -79,12 +81,7 @@ function unlockRotate(event) {
 renderer.domElement.addEventListener('mousedown', lockRotate);
 window.addEventListener('mouseup',               unlockRotate);
 
-// Zoom slider → move camera closer/further along its current orbit direction
-zoomCtrl.onChange((zoomPercent) => {
-    const targetDistance = defaultCameraDistance * 100 / zoomPercent;
-    const orbitDirection = camera.position.clone().sub(cameraControls.target).normalize();
-    camera.position.copy(cameraControls.target).addScaledVector(orbitDirection, targetDistance);
-});
+initPanels();
 
 //==========================================================
 // SHAPE LIST SETUP
@@ -159,19 +156,15 @@ function animate(time) {
     // Sync all shape params + rotation matrices to GPU (loops over shapeList)
     syncShapeUniforms(shapeList, material.uniforms, activeShapeIndex, _rotMat4);
 
-    // Sync zoom slider to reflect scroll/orbit changes
+    // Sync zoom level to reflect scroll/orbit changes (updatePanels reads this to refresh the slider)
     const currentDistance = camera.position.distanceTo(cameraControls.target);
-    const currentZoom = Math.round(defaultCameraDistance * 100 / currentDistance);
-    const zoomRange = Math.max(10, Math.min(400, currentZoom));
-    if (zoomRange !== settings.zoomLevel) {
-        settings.zoomLevel = zoomRange;
-        zoomCtrl.updateDisplay();
-    }
+    settings.zoomLevel = Math.max(10, Math.min(400, Math.round(defaultCameraDistance * 100 / currentDistance)));
 
     cameraControls.update();
     renderer.render(scene, camera);
     gumball.update();
     transformHandles.update();
+    updatePanels();
     requestAnimationFrame(animate);
 }
 

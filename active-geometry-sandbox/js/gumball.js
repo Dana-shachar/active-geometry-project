@@ -4,16 +4,18 @@ import * as THREE from 'three';
 // plus view preset buttons (TOP / FRONT / SIDE / PERSPECTIVE) and a RESET button.
 // Usage: const gumball = new Gumball(camera, cameraControls, settings);  → call gumball.update() each frame.
 export class Gumball {
-    constructor(camera, cameraControls, settings) {
+    constructor(camera, cameraControls, settings, onZoomChange) {
         this.camera          = camera;
         this.cameraControls  = cameraControls;
         this.settings        = settings;
+        this.onZoomChange    = onZoomChange ?? (() => {});
         this.armLength       = 28;
         this.labelOffset     = 38;
         this.centerX         = 40;
         this.centerY         = 40;
         this.snapSpeed       = 0.08;
-        this._snapTarget     = null;   // THREE.Vector3 — active during snap animation
+        this._snapTarget     = null;
+        this.zoomInput       = null;
 
         this.axisConfigs = [
             { key: 'x', color: '#ff4444', label: 'X', worldDir: new THREE.Vector3(1, 0, 0) },
@@ -22,16 +24,94 @@ export class Gumball {
         ];
 
         this.svgElements = {};
-        this._buildSVG();
-        this.viewButtons();
+        this._buildPanel();
     }
 
-    _buildSVG() {
+    _buildPanel() {
+        const btnStyle = `
+            padding: 4px 8px;
+            cursor: pointer;
+            font-size: 10px;
+            font-family: Helvetica, sans-serif;
+            background: #0C0C0D;
+            color: #ffffff;
+            border: 1px solid #5B5B5B;
+            border-radius: 4px;
+            white-space: nowrap;
+        `;
+
+        // One container, bottom-left, flex column — items stack top-to-bottom,
+        // container grows upward from the fixed bottom edge.
+        const container = document.createElement('div');
+        container.style.cssText = `
+            position: fixed;
+            bottom: 16px;
+            left: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        `;
+
+        // Zoom slider — sits above the view buttons, double gap below it
+        const zoomRow = document.createElement('div');
+        zoomRow.style.cssText = 'display:flex; align-items:center; gap:8px; margin-bottom:8px;';
+
+        const zoomLabel = document.createElement('span');
+        zoomLabel.textContent = 'Zoom';
+        zoomLabel.style.cssText = 'font: 700 12px Helvetica, sans-serif; color: #ffffff; white-space: nowrap;';
+
+        this.zoomInput = document.createElement('input');
+        this.zoomInput.type  = 'range';
+        this.zoomInput.min   = 10;
+        this.zoomInput.max   = 400;
+        this.zoomInput.step  = 1;
+        this.zoomInput.value = this.settings.zoomLevel;
+        this.zoomInput.style.cssText = `
+            width: 80px;
+            height: 2px;
+            accent-color: #ffffff;
+            cursor: pointer;
+            -webkit-appearance: none;
+            appearance: none;
+            background: #5B5B5B;
+            border-radius: 1px;
+            outline: none;
+        `;
+        this.zoomInput.addEventListener('input', () => {
+            this.settings.zoomLevel = parseFloat(this.zoomInput.value);
+            this.onZoomChange(this.settings.zoomLevel);
+        });
+
+        zoomRow.appendChild(zoomLabel);
+        zoomRow.appendChild(this.zoomInput);
+        container.appendChild(zoomRow);
+
+        // View preset buttons
+        for (const preset of ['TOP', 'FRONT', 'SIDE', 'PERSPECTIVE']) {
+            const btn = document.createElement('button');
+            btn.textContent = preset;
+            btn.style.cssText = btnStyle;
+            btn.addEventListener('mouseenter', () => { btn.style.background = '#1A1A1A'; });
+            btn.addEventListener('mouseleave', () => { btn.style.background = '#0C0C0D'; });
+            btn.addEventListener('click', () => this.snapToView(preset.toLowerCase()));
+            container.appendChild(btn);
+        }
+
+        // Reset View button
+        const resetBtn = document.createElement('button');
+        resetBtn.textContent = 'RESET VIEW';
+        resetBtn.style.cssText = btnStyle;
+        resetBtn.addEventListener('mouseenter', () => { resetBtn.style.background = '#1A1A1A'; });
+        resetBtn.addEventListener('mouseleave', () => { resetBtn.style.background = '#0C0C0D'; });
+        resetBtn.addEventListener('click', () => this.ResetScene());
+        container.appendChild(resetBtn);
+
+        // SVG axis indicator — appended last so it sits at the bottom of the column
         const svgNS = 'http://www.w3.org/2000/svg';
         const svg = document.createElementNS(svgNS, 'svg');
         svg.setAttribute('width', '80');
         svg.setAttribute('height', '80');
-        svg.style.cssText = 'position:fixed;bottom:16px;left:16px;pointer-events:none;';
+        svg.style.cssText = 'pointer-events:none; margin-top:16px;';
 
         for (const config of this.axisConfigs) {
             const line = document.createElementNS(svgNS, 'line');
@@ -55,68 +135,12 @@ export class Gumball {
             this.svgElements[config.key] = { line, text };
         }
 
-        document.body.appendChild(svg);
-    }
-
-    viewButtons() {
-        const presets = ['TOP', 'FRONT', 'SIDE', 'PERSPECTIVE'];
-
-        const container = document.createElement('div');
-        container.style.cssText = `
-            position: fixed;
-            bottom: 106px;
-            left: 16px;
-            width: 80px;
-            display: flex;
-            flex-direction: column;
-            gap: 2px;
-        `;
-
-        for (const preset of presets) {
-            const btn = document.createElement('button');
-            btn.textContent = preset;
-            btn.style.cssText = `
-                width: 100%;
-                padding: 4px 0;
-                cursor: pointer;
-                font-size: 10px;
-                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
-                background: #1f1f1f;
-                color: #ebebeb;
-                border: 1px solid #424242;
-                border-radius: 2px;
-            `;
-            btn.addEventListener('mouseenter', () => { btn.style.background = '#4f4f4f'; });
-            btn.addEventListener('mouseleave', () => { btn.style.background = '#1f1f1f'; });
-            btn.addEventListener('click', () => this.snapToView(preset.toLowerCase()));
-            container.appendChild(btn);
-        }
-
-        const resetBtn = document.createElement('button');
-        resetBtn.textContent = 'RESET VIEW';
-        resetBtn.style.cssText = `
-            width: 100%;
-            padding: 4px 0;
-            margin-top: 6px;
-            cursor: pointer;
-            font-size: 10px;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
-            background: #1f1f1f;
-            color: #ebebeb;
-            border: 1px solid #424242;
-            border-radius: 2px;
-        `;
-        resetBtn.addEventListener('mouseenter', () => { resetBtn.style.background = '#4f4f4f'; });
-        resetBtn.addEventListener('mouseleave', () => { resetBtn.style.background = '#1f1f1f'; });
-        resetBtn.addEventListener('click', () => this.ResetScene());
-        container.appendChild(resetBtn);
-
+        container.appendChild(svg);
         document.body.appendChild(container);
     }
 
     ResetScene() {
-        const perspDist = 80 / Math.sqrt(3);  // matches defaultPerspDist in main.js
-        this.settings.posOffset.set(0, 0, 0);
+        const perspDist = 80 / Math.sqrt(3);
         this.camera.position.set(perspDist, perspDist, perspDist);
         this.camera.up.set(0, 1, 0);
         this.cameraControls.target.set(0, 0, 0);
@@ -146,6 +170,12 @@ export class Gumball {
     }
 
     update() {
+        // Sync zoom slider display (only when not focused, only when value changed)
+        if (this.zoomInput && document.activeElement !== this.zoomInput) {
+            const zoomStr = String(this.settings.zoomLevel);
+            if (this.zoomInput.value !== zoomStr) this.zoomInput.value = zoomStr;
+        }
+
         // Smooth snap animation
         if (this._snapTarget) {
             this.camera.position.lerp(this._snapTarget, this.snapSpeed);

@@ -7,12 +7,12 @@ import { addShape, getActiveShape } from './shapeManager.js';
 const STAGE_NAMES = ['unit cell', 'locking', 'lattice', 'Geometry simulation'];
 
 const PRIMITIVE_TYPES = [
-    { type: 'sphere',     label: 'Sphere'     },
-    { type: 'cylinder',   label: 'Cylinder'   },
-    { type: 'box',        label: 'Box'        },
-    { type: 'prism',      label: 'Prism'      },
-    { type: 'polyhedron', label: 'Polyhedron' },
-    { type: 'helix',      label: 'Helix'      },
+    { type: 'sphere',     label: 'Sphere',     icon: '●' },
+    { type: 'cylinder',   label: 'Cylinder',   icon: '▮' },
+    { type: 'box',        label: 'Box',        icon: '■' },
+    { type: 'prism',      label: 'Prism',      icon: '▲' },
+    { type: 'polyhedron', label: 'Polyhedron', icon: '◆' },
+    { type: 'helix',      label: 'Helix',      icon: '⊛' },
 ];
 
 // Module-level refs updated by buildRightPanel, read by updatePanels each frame
@@ -43,16 +43,35 @@ function evalMath(str) {
 function injectStyles() {
     const style = document.createElement('style');
     style.textContent = `
+        /* ── Fonts ── */
+        @font-face {
+            font-family: 'Helvetica';
+            src: url('/assets/font/HelveticaLTStd-Light.ttf') format('truetype');
+            font-weight: 300;
+        }
+        @font-face {
+            font-family: 'Helvetica';
+            src: url('/assets/font/HelveticaLTStd-Roman.ttf') format('truetype');
+            font-weight: 400;
+        }
+        @font-face {
+            font-family: 'Helvetica';
+            src: url('/assets/font/HelveticaLTStd-Bold.ttf') format('truetype');
+            font-weight: 700;
+        }
+
         /* ── Design tokens ── */
         :root {
             --bg-canvas:                  #0C0C0D;
-            --bg-panel:                   rgba(255, 255, 255, 0.25);
-            --bg-tab-inactive:            rgba(255, 255, 255, 0.10);
+            --bg-panel:                   #49494A;
+            --bg-tab-inactive:            #3A3A3B;
 
             --btn-default-bg:             #5B5B5B;
             --btn-hover-bg:               #757575;
-            --btn-stroke:                 #FFFFFF;
-            --btn-icon-active-bg:         #39393C;
+            --btn-stroke:                 #8C8C8C;
+            --btn-stroke-weight:          0.75px;
+            --btn-icon-bg:                #39393C;
+            --btn-icon-active-bg:         #4A4A4D;
             --btn-padding:                4px;
             --btn-radius:                 4px;
             --btn-disabled-bg-opacity:    0.30;
@@ -63,7 +82,7 @@ function injectStyles() {
             --toggle-active-fill:         rgba(255, 255, 255, 0.20);
             --toggle-radius:              4px;
 
-            --icon-btn-size:              24px;
+            --icon-btn-size:              32px;
             --icon-btn-gap:               6px;
 
             --dropdown-bg:                rgba(91, 91, 91, 0.80);
@@ -71,7 +90,7 @@ function injectStyles() {
             --input-fill:                 rgba(242, 242, 247, 0.15);
             --input-stroke:               #F2F2F7;
             --input-stroke-weight:        0.25px;
-            --input-focus-stroke:         #00C8B3;
+            --input-focus-stroke:         var(--accent-primary);
 
             --divider-stroke:             rgba(255, 255, 255, 0.20);
             --divider-weight:             0.5px;
@@ -80,44 +99,58 @@ function injectStyles() {
             --error-stroke:               #F9DEDC;
             --error-text:                 #F9DEDC;
 
-            --accent-primary:             #00C8B3;
-            --accent-alt:                 #E5C11F;
+            --accent-primary:             #E5C11F;
+            --accent-alt:                 #00C8B3;
 
             --text-primary:               #FFFFFF;
-            --font:                       Helvetica;
+            --font:                       'Helvetica', sans-serif;
 
             --panel-padding:              8px;
             --panel-radius:               4px;
+            --right-panel-padding:        16px;
+            --right-panel-max-width:      360px;
             --section-gap:                12px;
-            --item-gap:                   4px;
+            --item-gap:                   8px;
             --label-input-gap:            2px;
             --input-field-gap:            6px;
             --text-input-gap:             8px;
             --shape-menu-gap:             8px;
-            --tab-height:                 18px;
+            --tab-height:                 32px;
             --tab-padding:                8px;
         }
 
         *, *::before, *::after { box-sizing: border-box; }
 
         /* ── Panels ── */
-        .ag-left-panel {
+        .ag-left-col {
             position: fixed;
-            top: 0; left: 0;
-            width: fit-content;
-            height: fit-content;
+            top: 16px; left: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: var(--section-gap);
+            z-index: 50;
+        }
+        .ag-left-panel {
             background: var(--bg-panel);
             border-radius: var(--panel-radius);
             padding: var(--panel-padding);
-            z-index: 50;
             display: flex;
             flex-direction: column;
-            gap: var(--shape-menu-gap);
+            gap: var(--item-gap);
+            font-family: var(--font);
+            color: var(--text-primary);
+        }
+        .ag-shape-mode-header {
+            font-size: 12px;
+            font-weight: 400;
+            text-align: center;
+            padding: 2px 0;
         }
         .ag-right-outer {
             position: fixed;
             top: 0; right: 0;
             width: fit-content;
+            max-width: var(--right-panel-max-width);
             height: fit-content;
             background: var(--bg-panel);
             border-radius: var(--panel-radius);
@@ -126,7 +159,7 @@ function injectStyles() {
             flex-direction: column;
         }
         .ag-right-content {
-            padding: var(--panel-padding);
+            padding: var(--right-panel-padding);
             display: flex;
             flex-direction: column;
             gap: var(--section-gap);
@@ -142,11 +175,11 @@ function injectStyles() {
         }
         .ag-stage-tab {
             height: var(--tab-height);
-            padding: var(--tab-padding);
+            padding: 0 var(--tab-padding);
             display: flex;
             align-items: center;
             justify-content: center;
-            font: 300 6pt var(--font);
+            font: 400 13px var(--font);
             color: var(--text-primary);
             opacity: 0.4;
             background: var(--bg-tab-inactive);
@@ -158,12 +191,11 @@ function injectStyles() {
         .ag-stage-tab.ag-active {
             background: var(--bg-panel);
             opacity: 1;
-            border-bottom: 1px solid var(--accent-primary);
         }
 
         /* ── Section titles + dividers ── */
         .ag-section-title {
-            font: 700 8pt var(--font);
+            font: 700 12px var(--font);
             color: var(--text-primary);
             margin-bottom: var(--item-gap);
         }
@@ -173,12 +205,12 @@ function injectStyles() {
             background: var(--divider-stroke);
         }
         .ag-subsection-title {
-            font: 400 6pt var(--font);
+            font: 400 12px var(--font);
             color: var(--text-primary);
             margin-bottom: var(--item-gap);
         }
 
-        /* ── Left panel: mode buttons (icon, 24×24) ── */
+        /* ── Left panel: mode buttons ── */
         .ag-mode-buttons {
             display: flex;
             gap: var(--icon-btn-gap);
@@ -186,12 +218,11 @@ function injectStyles() {
         .ag-mode-btn {
             width: var(--icon-btn-size);
             height: var(--icon-btn-size);
-            padding: var(--btn-padding);
-            border: 1px solid var(--btn-stroke);
-            background: var(--btn-default-bg);
+            border: none;
+            background: var(--btn-icon-bg);
             border-radius: var(--btn-radius);
             color: var(--text-primary);
-            font: 300 6pt var(--font);
+            font-size: 16px;
             cursor: pointer;
             display: flex;
             align-items: center;
@@ -200,49 +231,59 @@ function injectStyles() {
         .ag-mode-btn:hover { background: var(--btn-hover-bg); }
         .ag-mode-btn.ag-active { background: var(--btn-icon-active-bg); border-color: var(--accent-primary); }
         .ag-mode-btn:disabled { opacity: var(--btn-disabled-bg-opacity); cursor: default; }
-        .ag-mode-btn:disabled span { opacity: var(--btn-disabled-text-opacity); }
 
         /* ── Solid / Strut toggle ── */
         .ag-toggle {
             display: flex;
-            border-radius: var(--toggle-radius);
-            overflow: hidden;
+            justify-content: space-between;
+            width: 100%;
         }
         .ag-toggle-btn {
-            width: var(--toggle-btn-width);
-            height: var(--toggle-btn-height);
+            padding: var(--btn-padding);
             border: none;
             background: transparent;
             color: var(--text-primary);
-            font: 300 6pt var(--font);
+            font-size: 12px;
+            font-weight: 400;
+            font-family: var(--font);
             cursor: pointer;
-            display: flex;
-            align-items: center;
-            justify-content: center;
+            white-space: nowrap;
+            text-align: center;
+            border-radius: var(--toggle-radius);
         }
         .ag-toggle-btn.ag-active { background: var(--toggle-active-fill); }
 
-        /* ── Primitive buttons (icon, 24×24) ── */
+        /* ── Primitive buttons ── */
         .ag-primitives {
+            background: rgba(0, 0, 0, 0.25);
+            border-radius: var(--btn-radius);
+            padding: var(--btn-padding);
             display: flex;
             flex-direction: column;
-            gap: var(--shape-menu-gap);
+            gap: var(--icon-btn-gap);
+            align-items: center;
         }
         .ag-primitive-btn {
             width: var(--icon-btn-size);
             height: var(--icon-btn-size);
-            padding: var(--btn-padding);
-            background: var(--btn-default-bg);
-            border: 1px solid var(--btn-stroke);
+            background: var(--btn-icon-bg);
+            border: none;
             border-radius: var(--btn-radius);
             color: var(--text-primary);
-            font: 300 6pt var(--font);
+            font-size: 16px;
             cursor: pointer;
             display: flex;
             align-items: center;
             justify-content: center;
         }
-        .ag-primitive-btn:hover { background: var(--btn-hover-bg); }
+        .ag-primitive-btn:hover { background: var(--btn-icon-active-bg); }
+
+        /* ── Panel sections ── */
+        .ag-panel-section {
+            display: flex;
+            flex-direction: column;
+            gap: var(--item-gap);
+        }
 
         /* ── Sliders ── */
         .ag-slider-row {
@@ -251,14 +292,35 @@ function injectStyles() {
             gap: var(--text-input-gap);
         }
         .ag-slider-label {
-            font: 300 6pt var(--font);
+            font: 300 12px var(--font);
             color: var(--text-primary);
             flex-shrink: 0;
+            min-width: 80px;
         }
         input[type=range].ag-slider {
+            -webkit-appearance: none;
+            appearance: none;
             flex: 1;
             height: 2px;
-            accent-color: var(--accent-primary);
+            background: var(--btn-default-bg);
+            border-radius: 1px;
+            cursor: pointer;
+            outline: none;
+        }
+        input[type=range].ag-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--text-primary);
+            cursor: pointer;
+        }
+        input[type=range].ag-slider::-moz-range-thumb {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--text-primary);
+            border: none;
             cursor: pointer;
         }
 
@@ -269,7 +331,7 @@ function injectStyles() {
             gap: var(--text-input-gap);
         }
         .ag-xyz-label {
-            font: 300 6pt var(--font);
+            font: 300 12px var(--font);
             color: var(--text-primary);
             flex-shrink: 0;
         }
@@ -286,7 +348,7 @@ function injectStyles() {
             min-width: 0;
         }
         .ag-xyz-axis-label {
-            font: 300 6pt var(--font);
+            font: 300 12px var(--font);
             color: var(--text-primary);
             opacity: 0.5;
         }
@@ -296,8 +358,9 @@ function injectStyles() {
             border: var(--input-stroke-weight) solid var(--input-stroke);
             border-radius: 2px;
             color: var(--text-primary);
-            font: 300 6pt var(--font);
+            font: 300 12px var(--font);
             padding: 3px 4px;
+            text-align: center;
         }
         .ag-xyz-field:focus {
             outline: none;
@@ -313,11 +376,11 @@ function injectStyles() {
             width: var(--icon-btn-size);
             height: var(--icon-btn-size);
             padding: var(--btn-padding);
-            background: var(--btn-default-bg);
-            border: 1px solid var(--btn-stroke);
+            background: var(--btn-icon-bg);
+            border: none;
             border-radius: var(--btn-radius);
             color: var(--text-primary);
-            font: 300 6pt var(--font);
+            font: 300 12px var(--font);
             cursor: pointer;
             display: flex;
             align-items: center;
@@ -334,7 +397,7 @@ function injectStyles() {
             gap: var(--text-input-gap);
         }
         .ag-local-row label {
-            font: 300 6pt var(--font);
+            font: 300 12px var(--font);
             color: var(--text-primary);
             flex-shrink: 0;
         }
@@ -344,8 +407,9 @@ function injectStyles() {
             border: var(--input-stroke-weight) solid var(--input-stroke);
             border-radius: 2px;
             color: var(--text-primary);
-            font: 300 6pt var(--font);
+            font: 300 12px var(--font);
             padding: 3px 4px;
+            text-align: center;
         }
         .ag-local-select {
             flex: 1; min-width: 0;
@@ -353,14 +417,24 @@ function injectStyles() {
             border: var(--input-stroke-weight) solid var(--input-stroke);
             border-radius: 2px;
             color: var(--text-primary);
-            font: 300 6pt var(--font);
+            font: 300 12px var(--font);
             padding: 3px 4px;
         }
+        .ag-compact-select {
+            width: fit-content;
+            background: var(--dropdown-bg);
+            border: var(--input-stroke-weight) solid var(--input-stroke);
+            border-radius: 2px;
+            color: var(--text-primary);
+            font: 300 12px var(--font);
+            padding: 3px 8px;
+        }
         .ag-local-input:focus,
-        .ag-local-select:focus { outline: none; border-color: var(--input-focus-stroke); }
+        .ag-local-select:focus,
+        .ag-compact-select:focus { outline: none; border-color: var(--input-focus-stroke); }
         .ag-local-checkbox { accent-color: var(--accent-primary); }
         .ag-no-selection {
-            font: 300 6pt var(--font);
+            font: 300 12px var(--font);
             color: var(--text-primary);
             opacity: 0.3;
             text-align: center;
@@ -369,14 +443,15 @@ function injectStyles() {
 
         /* ── Action buttons (Export / Upload / To Ground / Reset) ── */
         .ag-action-btn {
-            padding: var(--btn-padding);
+            padding: 8px 8px 4px;
             background: var(--btn-default-bg);
-            border: 1px solid var(--btn-stroke);
+            border: var(--btn-stroke-weight) solid var(--btn-stroke);
             border-radius: var(--btn-radius);
             color: var(--text-primary);
-            font: 300 6pt var(--font);
+            font: 300 12px var(--font);
+            line-height: 0.9;
             cursor: pointer;
-            width: 100%;
+            width: fit-content;
         }
         .ag-action-btn:hover { background: var(--btn-hover-bg); }
         .ag-action-btn:disabled { opacity: var(--btn-disabled-bg-opacity); cursor: default; }
@@ -388,8 +463,8 @@ function injectStyles() {
             align-items: center;
             gap: var(--item-gap);
         }
-        .ag-kv-key   { font: 300 6pt var(--font); color: var(--text-primary); opacity: 0.6; }
-        .ag-kv-value { font: 300 6pt var(--font); color: var(--text-primary); }
+        .ag-kv-key   { font: 300 12px var(--font); color: var(--text-primary); opacity: 0.6; }
+        .ag-kv-value { font: 300 12px var(--font); color: var(--text-primary); }
 
         /* ── Error / Warning ── */
         .ag-error {
@@ -398,7 +473,7 @@ function injectStyles() {
             border: 1px solid var(--error-stroke);
             border-radius: var(--btn-radius);
             color: var(--error-text);
-            font: 300 6pt var(--font);
+            font: 300 12px var(--font);
         }
     `;
     document.head.appendChild(style);
@@ -534,27 +609,30 @@ function xyzRow(labelText, axes) {
 // LEFT PANEL
 // ============================================================
 function buildLeftPanel() {
-    const panel = document.createElement('div');
-    panel.className = 'ag-left-panel';
+    const col = document.createElement('div');
+    col.className = 'ag-left-col';
+
+    // ── Shape Mode panel ──
+    const shapePanel = document.createElement('div');
+    shapePanel.className = 'ag-left-panel';
 
     const header = document.createElement('div');
-    header.className = 'ag-panel-header';
+    header.className = 'ag-shape-mode-header';
     header.textContent = 'Shape Mode';
-    panel.appendChild(header);
+    shapePanel.appendChild(header);
 
-    // Point / Edge / Face select mode
     const modeRow = document.createElement('div');
     modeRow.className = 'ag-mode-buttons';
     const modes = [
-        { key: 'point', label: 'PT', title: 'Point select' },
-        { key: 'edge',  label: 'ED', title: 'Edge select'  },
-        { key: 'face',  label: 'FA', title: 'Face select'  },
+        { key: 'point', icon: '⬡', title: 'Point select' },
+        { key: 'edge',  icon: '⬢', title: 'Edge select'  },
+        { key: 'face',  icon: '⬛', title: 'Face select'  },
     ];
     settings.selectMode = 'face';
     modes.forEach(mode => {
         const btn = document.createElement('button');
         btn.className = 'ag-mode-btn' + (mode.key === 'face' ? ' ag-active' : '');
-        btn.textContent = mode.label;
+        btn.textContent = mode.icon;
         btn.title = mode.title;
         btn.addEventListener('click', () => {
             modeRow.querySelectorAll('.ag-mode-btn').forEach(b => b.classList.remove('ag-active'));
@@ -563,9 +641,13 @@ function buildLeftPanel() {
         });
         modeRow.appendChild(btn);
     });
-    panel.appendChild(modeRow);
+    shapePanel.appendChild(modeRow);
+    col.appendChild(shapePanel);
 
-    // Solid / Strut toggle
+    // ── Primitives panel ──
+    const primPanel = document.createElement('div');
+    primPanel.className = 'ag-left-panel';
+
     settings.primitiveMode = 'solid';
     const toggle = document.createElement('div');
     toggle.className = 'ag-toggle';
@@ -580,21 +662,22 @@ function buildLeftPanel() {
         });
         toggle.appendChild(btn);
     });
-    panel.appendChild(toggle);
+    primPanel.appendChild(toggle);
 
-    // Primitive list — click to add that shape
     const primList = document.createElement('div');
     primList.className = 'ag-primitives';
-    PRIMITIVE_TYPES.forEach(({ type, label }) => {
+    PRIMITIVE_TYPES.forEach(({ type, label, icon }) => {
         const btn = document.createElement('button');
         btn.className = 'ag-primitive-btn';
-        btn.textContent = label;
+        btn.textContent = icon;
+        btn.title = label;
         btn.addEventListener('click', () => addShape(type));
         primList.appendChild(btn);
     });
-    panel.appendChild(primList);
+    primPanel.appendChild(primList);
+    col.appendChild(primPanel);
 
-    document.body.appendChild(panel);
+    document.body.appendChild(col);
 }
 
 // ============================================================
@@ -605,13 +688,23 @@ function buildRightPanel(rightOuter) {
     content.className = 'ag-right-content';
     rightOuter.appendChild(content);
 
-    // ---- LIGHTING ----
-    const lightSection = document.createElement('div');
-    lightSection.className = 'ag-panel-section';
-    const lightTitle = document.createElement('div');
-    lightTitle.className = 'ag-section-title';
-    lightTitle.textContent = 'Lighting';
-    lightSection.appendChild(lightTitle);
+    function divider() {
+        const d = document.createElement('div');
+        d.className = 'ag-section-divider';
+        return d;
+    }
+
+    function section(title) {
+        const sec = document.createElement('div');
+        sec.className = 'ag-panel-section';
+        if (title) {
+            const t = document.createElement('div');
+            t.className = 'ag-section-title';
+            t.textContent = title;
+            sec.appendChild(t);
+        }
+        return sec;
+    }
 
     function addSlider(parent, label, min, max, step, getValue, setValue) {
         const row = document.createElement('div');
@@ -627,30 +720,55 @@ function buildRightPanel(rightOuter) {
         row.appendChild(lbl); row.appendChild(slider);
         parent.appendChild(row);
     }
+
+    // ---- LIGHTING ----
+    const lightSection = section('Lighting');
     addSlider(lightSection, 'Ambient light',  0,   0.5, 0.01, () => settings.ambientLight, v => { settings.ambientLight = v; });
     addSlider(lightSection, 'X pos light',   -10,  10,  0.1,  () => settings.lightX,       v => { settings.lightX = v; });
     addSlider(lightSection, 'Y pos light',   -10,  10,  0.1,  () => settings.lightY,       v => { settings.lightY = v; });
     content.appendChild(lightSection);
+    content.appendChild(divider());
+
+    // ---- ALIGNMENT (placeholder) ----
+    const alignSection = section('Local Controls');
+    const alignRow = document.createElement('div');
+    alignRow.className = 'ag-local-row';
+    const alignLabel = document.createElement('label');
+    alignLabel.textContent = 'Alignment to plane';
+    const axisSelect = document.createElement('select');
+    axisSelect.className = 'ag-compact-select';
+    ['XY', 'XZ', 'YZ'].forEach(axis => {
+        const opt = document.createElement('option');
+        opt.value = axis; opt.textContent = axis;
+        axisSelect.appendChild(opt);
+    });
+    alignRow.appendChild(alignLabel);
+    alignRow.appendChild(axisSelect);
+    alignSection.appendChild(alignRow);
+    const alignBtns = document.createElement('div');
+    alignBtns.className = 'ag-bool-buttons';
+    for (let i = 0; i < 6; i++) {
+        const btn = document.createElement('button');
+        btn.className = 'ag-bool-btn';
+        btn.textContent = '⊟';
+        btn.title = 'Alignment (coming soon)';
+        btn.disabled = true;
+        alignBtns.appendChild(btn);
+    }
+    alignSection.appendChild(alignBtns);
+    content.appendChild(alignSection);
+    content.appendChild(divider());
 
     // ---- SHAPE LOCAL CONTROLS ----
-    const localSection = document.createElement('div');
-    localSection.className = 'ag-panel-section';
-    const localTitle = document.createElement('div');
-    localTitle.className = 'ag-section-title';
-    localTitle.textContent = 'Shape Local Controls';
-    localSection.appendChild(localTitle);
+    const localSection = section('Shape Local Controls');
     localControlsContainer = document.createElement('div');
     localSection.appendChild(localControlsContainer);
     localControls(getActiveShape(), localControlsContainer);
     content.appendChild(localSection);
+    content.appendChild(divider());
 
     // ---- TRANSFORM ----
-    const transformSection = document.createElement('div');
-    transformSection.className = 'ag-panel-section';
-    const transformTitle = document.createElement('div');
-    transformTitle.className = 'ag-section-title';
-    transformTitle.textContent = 'Transform';
-    transformSection.appendChild(transformTitle);
+    const transformSection = section('Transform');
 
     const posRow = xyzRow('Position (mm)', [
         { key: 'x', getValue: () => getActiveShape()?.posOffset.x ?? 0, setValue: v => { const s = getActiveShape(); if (s) s.posOffset.x = v; } },
@@ -676,7 +794,6 @@ function buildRightPanel(rightOuter) {
     scaleInputs = scaleRow.inputs;
     transformSection.appendChild(scaleRow.element);
 
-    // To Ground + Reset Rotation
     const toGroundBtn = document.createElement('button');
     toGroundBtn.className = 'ag-action-btn';
     toGroundBtn.textContent = 'To Ground';
@@ -699,25 +816,22 @@ function buildRightPanel(rightOuter) {
     transformSection.appendChild(resetRotBtn);
 
     content.appendChild(transformSection);
+    content.appendChild(divider());
 
     // ---- BOOLEANS ----
-    const boolSection = document.createElement('div');
-    boolSection.className = 'ag-panel-section';
-    const boolTitle = document.createElement('div');
-    boolTitle.className = 'ag-section-title';
-    boolTitle.textContent = 'Booleans';
-    boolSection.appendChild(boolTitle);
+    const boolSection = section('Booleans');
     const boolButtons = document.createElement('div');
     boolButtons.className = 'ag-bool-buttons';
     [
-        { op: 'union',     label: 'Union'     },
-        { op: 'subtract',  label: 'Subtract'  },
-        { op: 'intersect', label: 'Intersect' },
-        { op: 'exclude',   label: 'Exclude'   },
-    ].forEach(({ op, label }) => {
+        { op: 'union',     label: 'Union',     icon: '∪' },
+        { op: 'subtract',  label: 'Subtract',  icon: '∖' },
+        { op: 'intersect', label: 'Intersect', icon: '∩' },
+        { op: 'exclude',   label: 'Exclude',   icon: '⊻' },
+    ].forEach(({ op, label, icon }) => {
         const btn = document.createElement('button');
         btn.className = 'ag-bool-btn';
-        btn.textContent = label;
+        btn.textContent = icon;
+        btn.title = label;
         btn.addEventListener('click', () => {
             const shape = getActiveShape();
             if (!shape) return;
@@ -729,23 +843,23 @@ function buildRightPanel(rightOuter) {
     });
     boolSection.appendChild(boolButtons);
     content.appendChild(boolSection);
+    content.appendChild(divider());
 
     // ---- EXPORT ----
-    const exportSection = document.createElement('div');
-    exportSection.className = 'ag-panel-section';
-    const exportTitle = document.createElement('div');
-    exportTitle.className = 'ag-section-title';
-    exportTitle.textContent = 'Export';
-    exportSection.appendChild(exportTitle);
+    const exportSection = section('Export');
 
     const fmtRow = document.createElement('div'); fmtRow.className = 'ag-kv-row';
     const fmtKey = document.createElement('span'); fmtKey.className = 'ag-kv-key'; fmtKey.textContent = 'File format';
-    const fmtVal = document.createElement('span'); fmtVal.className = 'ag-kv-value'; fmtVal.textContent = 'STL';
-    fmtRow.appendChild(fmtKey); fmtRow.appendChild(fmtVal);
+    const fmtSelect = document.createElement('select'); fmtSelect.className = 'ag-local-select';
+    ['STL', 'OBJ', 'STEP'].forEach(fmt => {
+        const opt = document.createElement('option'); opt.value = fmt; opt.textContent = fmt;
+        fmtSelect.appendChild(opt);
+    });
+    fmtRow.appendChild(fmtKey); fmtRow.appendChild(fmtSelect);
     exportSection.appendChild(fmtRow);
 
     const sizeRow = document.createElement('div'); sizeRow.className = 'ag-kv-row';
-    const sizeKey = document.createElement('span'); sizeKey.className = 'ag-kv-key'; sizeKey.textContent = 'Size';
+    const sizeKey = document.createElement('span'); sizeKey.className = 'ag-kv-key'; sizeKey.textContent = 'Size estimation';
     const sizeVal = document.createElement('span'); sizeVal.className = 'ag-kv-value'; sizeVal.textContent = '—';
     sizeRow.appendChild(sizeKey); sizeRow.appendChild(sizeVal);
     exportSection.appendChild(sizeRow);
@@ -755,14 +869,10 @@ function buildRightPanel(rightOuter) {
     exportBtn.textContent = 'EXPORT FILE';
     exportSection.appendChild(exportBtn);
     content.appendChild(exportSection);
+    content.appendChild(divider());
 
     // ---- UPLOAD ----
-    const uploadSection = document.createElement('div');
-    uploadSection.className = 'ag-panel-section';
-    const uploadTitle = document.createElement('div');
-    uploadTitle.className = 'ag-section-title';
-    uploadTitle.textContent = 'Upload';
-    uploadSection.appendChild(uploadTitle);
+    const uploadSection = section('Upload');
     const uploadBtn = document.createElement('button');
     uploadBtn.className = 'ag-action-btn';
     uploadBtn.textContent = 'UPLOAD FILE';
@@ -787,10 +897,11 @@ export function updatePanels() {
         }
     }
 
-    // Refresh transform inputs — skip fields that are currently focused
+    // Refresh transform inputs — only write if value changed and field isn't focused
     function refresh(field, value) {
         if (!field || document.activeElement === field) return;
-        field.value = Number(value).toFixed(2);
+        const formatted = Number(value).toFixed(2);
+        if (field.value !== formatted) field.value = formatted;
     }
 
     if (shape) {

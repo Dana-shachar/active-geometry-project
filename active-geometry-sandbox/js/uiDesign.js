@@ -1,10 +1,10 @@
 import { settings } from './uiSettings.js';
-import { addShape, getActiveShape } from './shapeManager.js';
+import { addShape, getActiveShape, setBooleanOp } from './shapeManager.js';
 
 // ============================================================
 // CONFIG
 // ============================================================
-const STAGE_NAMES = ['unit cell', 'locking', 'lattice', 'Geometry simulation'];
+const STAGE_NAMES = ['Unit Cell', 'Locking', 'Lattice', 'Geometry Simulation'];
 
 const PRIMITIVE_TYPES = [
     { type: 'sphere',     label: 'Sphere',     icon: '●' },
@@ -110,7 +110,7 @@ function injectStyles() {
             --right-panel-padding:        16px;
             --right-panel-max-width:      360px;
             --section-gap:                12px;
-            --item-gap:                   8px;
+            --item-gap:                   12px;
             --label-input-gap:            2px;
             --input-field-gap:            6px;
             --text-input-gap:             8px;
@@ -151,7 +151,7 @@ function injectStyles() {
             top: 0; right: 0;
             width: fit-content;
             max-width: var(--right-panel-max-width);
-            height: fit-content;
+            max-height: 100vh;
             background: var(--bg-panel);
             border-radius: var(--panel-radius);
             z-index: 50;
@@ -163,6 +163,7 @@ function injectStyles() {
             display: flex;
             flex-direction: column;
             gap: var(--section-gap);
+            flex: 1;
             overflow-y: auto;
             scrollbar-width: thin;
             scrollbar-color: rgba(255,255,255,0.15) transparent;
@@ -197,12 +198,13 @@ function injectStyles() {
         .ag-section-title {
             font: 700 12px var(--font);
             color: var(--text-primary);
-            margin-bottom: var(--item-gap);
         }
         .ag-section-divider {
             width: 100%;
+            min-height: 1px;
             height: var(--divider-weight);
             background: var(--divider-stroke);
+            flex-shrink: 0;
         }
         .ag-subsection-title {
             font: 400 12px var(--font);
@@ -297,6 +299,14 @@ function injectStyles() {
             flex-shrink: 0;
             min-width: 80px;
         }
+        .ag-slider-value {
+            font: 300 12px var(--font);
+            color: var(--text-primary);
+            opacity: 0.6;
+            flex-shrink: 0;
+            min-width: 36px;
+            text-align: right;
+        }
         input[type=range].ag-slider {
             -webkit-appearance: none;
             appearance: none;
@@ -334,6 +344,7 @@ function injectStyles() {
             font: 300 12px var(--font);
             color: var(--text-primary);
             flex-shrink: 0;
+            width: 100px;
         }
         .ag-xyz-fields {
             display: flex;
@@ -354,12 +365,14 @@ function injectStyles() {
         }
         .ag-xyz-field {
             width: 100%;
+            cursor: ew-resize;
             background: var(--input-fill);
             border: var(--input-stroke-weight) solid var(--input-stroke);
             border-radius: 2px;
             color: var(--text-primary);
             font: 300 12px var(--font);
-            padding: 3px 4px;
+            line-height: 0.9;
+            padding: 6px 4px 4px;
             text-align: center;
         }
         .ag-xyz-field:focus {
@@ -400,15 +413,18 @@ function injectStyles() {
             font: 300 12px var(--font);
             color: var(--text-primary);
             flex-shrink: 0;
+            white-space: nowrap;
         }
         .ag-local-input {
             flex: 1; min-width: 0;
+            cursor: ew-resize;
             background: var(--input-fill);
             border: var(--input-stroke-weight) solid var(--input-stroke);
             border-radius: 2px;
             color: var(--text-primary);
             font: 300 12px var(--font);
-            padding: 3px 4px;
+            line-height: 0.9;
+            padding: 6px 4px 4px;
             text-align: center;
         }
         .ag-local-select {
@@ -418,7 +434,8 @@ function injectStyles() {
             border-radius: 2px;
             color: var(--text-primary);
             font: 300 12px var(--font);
-            padding: 3px 4px;
+            line-height: 0.9;
+            padding: 6px 4px 4px;
         }
         .ag-compact-select {
             width: fit-content;
@@ -427,7 +444,8 @@ function injectStyles() {
             border-radius: 2px;
             color: var(--text-primary);
             font: 300 12px var(--font);
-            padding: 3px 8px;
+            line-height: 0.9;
+            padding: 6px 8px 4px;
         }
         .ag-local-input:focus,
         .ag-local-select:focus,
@@ -502,7 +520,7 @@ function localControls(shape, container) {
         container.appendChild(row);
     }
 
-    function numInput(getValue, setValue, min = 0.1) {
+    function numInput(getValue, setValue, min = 0.1, sensitivity = 0.1, snapIncrement = 1) {
         const input = document.createElement('input');
         input.type = 'text';
         input.className = 'ag-local-input';
@@ -517,6 +535,7 @@ function localControls(shape, container) {
             if (e.key === 'Enter') { commit(); input.blur(); }
             if (e.key === 'Escape') { input.value = Number(getValue()).toFixed(2); input.blur(); }
         });
+        makeScrubber(input, getValue, setValue, min, sensitivity, snapIncrement);
         return input;
     }
 
@@ -530,15 +549,15 @@ function localControls(shape, container) {
     }
 
     if (shape.type === 'sphere') {
-        addRow('Radius (mm)',       numInput(() => shape.width, v => { shape.width = v; if (shape.lockProportions) shape.height = v; }));
+        addRow('Radius (mm)',       numInput(() => shape.width, v => { shape.width = v; if (shape.lockProportions) shape.height = v; }, 0.1, 0.2, 1));
         addRow('Lock proportions',  checkbox(() => shape.lockProportions, v => { shape.lockProportions = v; }));
     }
     if (shape.type === 'box') {
-        addRow('Corner radius (mm)', numInput(() => shape.cornerRadius, v => { shape.cornerRadius = v; }, 0));
+        addRow('Corner radius (mm)', numInput(() => shape.cornerRadius, v => { shape.cornerRadius = v; }, 0, 0.1, 1));
     }
     if (shape.type === 'cylinder') {
         addRow('Cap ends',           checkbox(() => shape.caps,         v => { shape.caps = v; }));
-        addRow('Corner radius (mm)', numInput(() => shape.cornerRadius, v => { shape.cornerRadius = v; }, 0));
+        addRow('Corner radius (mm)', numInput(() => shape.cornerRadius, v => { shape.cornerRadius = v; }, 0, 0.1, 1));
     }
     if (shape.type === 'prism') {
         const sidesInput = document.createElement('input');
@@ -551,6 +570,7 @@ function localControls(shape, container) {
         };
         sidesInput.addEventListener('blur', commitSides);
         sidesInput.addEventListener('keydown', e => { if (e.key === 'Enter') { commitSides(); sidesInput.blur(); } });
+        makeScrubber(sidesInput, () => shape.sides, v => { const s = Math.round(Math.max(3, Math.min(20, v))); shape.sides = s; sidesInput.value = s; }, 3, 0.1, 1);
         addRow('Sides (3–20)', sidesInput);
         addRow('Cap ends', checkbox(() => shape.caps, v => { shape.caps = v; }));
     }
@@ -567,17 +587,49 @@ function localControls(shape, container) {
         addRow('Type', select);
     }
     if (shape.type === 'helix') {
-        addRow('Coil radius (mm)', numInput(() => shape.width,      v => { shape.width = v; }));
-        addRow('Tube radius (mm)', numInput(() => shape.tubeRadius, v => { shape.tubeRadius = v; }));
-        addRow('Step height (mm)', numInput(() => shape.stepHeight, v => { shape.stepHeight = v; }));
-        addRow('Turns',            numInput(() => shape.turns,      v => { shape.turns = v; }, 0.01));
+        addRow('Coil radius (mm)', numInput(() => shape.width,      v => { shape.width = v; },      0.1,  0.2,  1));
+        addRow('Tube radius (mm)', numInput(() => shape.tubeRadius, v => { shape.tubeRadius = v; }, 0.1,  0.1,  1));
+        addRow('Step height (mm)', numInput(() => shape.stepHeight, v => { shape.stepHeight = v; }, 0.1,  0.2,  1));
+        addRow('Turns',            numInput(() => shape.turns,      v => { shape.turns = v; },      0.01, 0.02, 0.1));
     }
+}
+
+// ============================================================
+// SCRUBBER — click+drag left/right on any numeric input to change its value.
+// Hold Cmd/Ctrl to snap to integers. Click without dragging focuses for typing.
+// ============================================================
+function makeScrubber(input, getValue, setValue, min, sensitivity = 0.1, snapIncrement = 1) {
+    input.addEventListener('mousedown', (e) => {
+        if (e.button !== 0) return;
+        e.preventDefault();
+
+        let hasMoved = false;
+
+        const onMove = (moveEvent) => {
+            hasMoved = true;
+            let newVal = getValue() + moveEvent.movementX * sensitivity;
+            if (moveEvent.metaKey || moveEvent.ctrlKey)
+                newVal = Math.round(newVal / snapIncrement) * snapIncrement;
+            newVal = Math.max(min, newVal);
+            setValue(newVal);
+            input.value = Number(getValue()).toFixed(2);
+        };
+
+        const onUp = () => {
+            document.removeEventListener('mousemove', onMove);
+            document.removeEventListener('mouseup', onUp);
+            if (!hasMoved) { input.focus(); input.select(); }
+        };
+
+        document.addEventListener('mousemove', onMove);
+        document.addEventListener('mouseup', onUp);
+    });
 }
 
 // ============================================================
 // XYZ INPUT ROW HELPER
 // ============================================================
-function xyzRow(labelText, axes) {
+function xyzRow(labelText, axes, sensitivity = 0.1, snapIncrement = 1) {
     const row = document.createElement('div');
     row.className = 'ag-xyz-row';
     const lbl = document.createElement('span');
@@ -586,7 +638,7 @@ function xyzRow(labelText, axes) {
     row.appendChild(lbl);
 
     const inputs = {};
-    axes.forEach(({ key, setValue, min = -Infinity }) => {
+    axes.forEach(({ key, getValue, setValue, min = -Infinity }) => {
         const field = document.createElement('input');
         field.type = 'text';
         field.className = 'ag-xyz-field';
@@ -599,6 +651,7 @@ function xyzRow(labelText, axes) {
             if (e.key === 'Enter') { commit(); field.blur(); }
             if (e.key === 'Escape') field.blur();
         });
+        makeScrubber(field, getValue, setValue, min, sensitivity, snapIncrement);
         row.appendChild(field);
         inputs[key] = field;
     });
@@ -716,8 +769,15 @@ function buildRightPanel(rightOuter) {
         slider.type = 'range'; slider.className = 'ag-slider';
         slider.min = min; slider.max = max; slider.step = step;
         slider.value = getValue();
-        slider.addEventListener('input', () => setValue(parseFloat(slider.value)));
-        row.appendChild(lbl); row.appendChild(slider);
+        const valDisplay = document.createElement('span');
+        valDisplay.className = 'ag-slider-value';
+        valDisplay.textContent = Number(getValue()).toFixed(2);
+        slider.addEventListener('input', () => {
+            const v = parseFloat(slider.value);
+            setValue(v);
+            valDisplay.textContent = v.toFixed(2);
+        });
+        row.appendChild(lbl); row.appendChild(slider); row.appendChild(valDisplay);
         parent.appendChild(row);
     }
 
@@ -762,6 +822,7 @@ function buildRightPanel(rightOuter) {
     // ---- SHAPE LOCAL CONTROLS ----
     const localSection = section('Shape Local Controls');
     localControlsContainer = document.createElement('div');
+    localControlsContainer.className = 'ag-panel-section';
     localSection.appendChild(localControlsContainer);
     localControls(getActiveShape(), localControlsContainer);
     content.appendChild(localSection);
@@ -774,7 +835,7 @@ function buildRightPanel(rightOuter) {
         { key: 'x', getValue: () => getActiveShape()?.posOffset.x ?? 0, setValue: v => { const s = getActiveShape(); if (s) s.posOffset.x = v; } },
         { key: 'y', getValue: () => getActiveShape()?.posOffset.y ?? 0, setValue: v => { const s = getActiveShape(); if (s) s.posOffset.y = v; } },
         { key: 'z', getValue: () => getActiveShape()?.posOffset.z ?? 0, setValue: v => { const s = getActiveShape(); if (s) s.posOffset.z = v; } },
-    ]);
+    ], 0.2, 10);
     posInputs = posRow.inputs;
     transformSection.appendChild(posRow.element);
 
@@ -782,7 +843,7 @@ function buildRightPanel(rightOuter) {
         { key: 'x', getValue: () => (getActiveShape()?.rotation.x ?? 0) * 180 / Math.PI, setValue: v => { const s = getActiveShape(); if (s) s.rotation.x = v * Math.PI / 180; } },
         { key: 'y', getValue: () => (getActiveShape()?.rotation.y ?? 0) * 180 / Math.PI, setValue: v => { const s = getActiveShape(); if (s) s.rotation.y = v * Math.PI / 180; } },
         { key: 'z', getValue: () => (getActiveShape()?.rotation.z ?? 0) * 180 / Math.PI, setValue: v => { const s = getActiveShape(); if (s) s.rotation.z = v * Math.PI / 180; } },
-    ]);
+    ], 0.5, 15);
     rotInputs = rotRow.inputs;
     transformSection.appendChild(rotRow.element);
 
@@ -790,7 +851,7 @@ function buildRightPanel(rightOuter) {
         { key: 'x', getValue: () => getActiveShape()?.width  ?? 0, setValue: v => { const s = getActiveShape(); if (s) s.width  = Math.max(0.1, v); }, min: 0.1 },
         { key: 'y', getValue: () => getActiveShape()?.height ?? 0, setValue: v => { const s = getActiveShape(); if (s) s.height = Math.max(0.1, v); }, min: 0.1 },
         { key: 'z', getValue: () => getActiveShape()?.depth  ?? 0, setValue: v => { const s = getActiveShape(); if (s) s.depth  = Math.max(0.1, v); }, min: 0.1 },
-    ]);
+    ], 0.2, 1);
     scaleInputs = scaleRow.inputs;
     transformSection.appendChild(scaleRow.element);
 
@@ -835,7 +896,7 @@ function buildRightPanel(rightOuter) {
         btn.addEventListener('click', () => {
             const shape = getActiveShape();
             if (!shape) return;
-            shape.booleanOp = op;
+            setBooleanOp(shape, op);
             boolButtons.querySelectorAll('.ag-bool-btn').forEach(b => b.classList.remove('ag-active'));
             btn.classList.add('ag-active');
         });
@@ -848,9 +909,9 @@ function buildRightPanel(rightOuter) {
     // ---- EXPORT ----
     const exportSection = section('Export');
 
-    const fmtRow = document.createElement('div'); fmtRow.className = 'ag-kv-row';
-    const fmtKey = document.createElement('span'); fmtKey.className = 'ag-kv-key'; fmtKey.textContent = 'File format';
-    const fmtSelect = document.createElement('select'); fmtSelect.className = 'ag-local-select';
+    const fmtRow = document.createElement('div'); fmtRow.className = 'ag-local-row';
+    const fmtKey = document.createElement('label'); fmtKey.className = 'ag-kv-key'; fmtKey.textContent = 'File format';
+    const fmtSelect = document.createElement('select'); fmtSelect.className = 'ag-compact-select';
     ['STL', 'OBJ', 'STEP'].forEach(fmt => {
         const opt = document.createElement('option'); opt.value = fmt; opt.textContent = fmt;
         fmtSelect.appendChild(opt);
@@ -858,7 +919,7 @@ function buildRightPanel(rightOuter) {
     fmtRow.appendChild(fmtKey); fmtRow.appendChild(fmtSelect);
     exportSection.appendChild(fmtRow);
 
-    const sizeRow = document.createElement('div'); sizeRow.className = 'ag-kv-row';
+    const sizeRow = document.createElement('div'); sizeRow.className = 'ag-local-row';
     const sizeKey = document.createElement('span'); sizeKey.className = 'ag-kv-key'; sizeKey.textContent = 'Size estimation';
     const sizeVal = document.createElement('span'); sizeVal.className = 'ag-kv-value'; sizeVal.textContent = '—';
     sizeRow.appendChild(sizeKey); sizeRow.appendChild(sizeVal);

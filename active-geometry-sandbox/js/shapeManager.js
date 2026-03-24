@@ -105,10 +105,25 @@ export function toggleShapeSelection(id) {
     }
 }
 
+// Select exactly one shape by index (plain click). Clears any prior selection.
+export function selectShape(index) {
+    selectedShapeIds.clear();
+    activeShapeIndex = index;
+    if (index >= 0 && index < shapeList.length) {
+        selectedShapeIds.add(shapeList[index].id);
+    }
+}
+
 // Deselect everything and clear active shape.
 export function clearSelection() {
     selectedShapeIds.clear();
     activeShapeIndex = -1;
+}
+
+// Sets the boolean op on a shape and increments shapeListVersion to trigger a shader recompile.
+export function setBooleanOp(shape, op) {
+    shape.booleanOp = op;
+    shapeListVersion++;
 }
 
 // Convenience getter — returns the active shape object, or null.

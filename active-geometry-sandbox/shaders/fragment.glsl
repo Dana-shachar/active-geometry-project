@@ -55,8 +55,10 @@ void main() {
   // 3. Raymarching Camera Setup — driven by Three.js OrbitControls via uniforms
   vec3 rayDirection = normalize((uCamMatrix * vec4(uv.x, uv.y, -uFocalLen, 0.0)).xyz);
   vec3 rayOrigin    = uCamPos;
-  float totalDistance = 0.0;                    // Total distance traveled by the ray
-  float minLnDist     = 1e10;                   // Closest the ray came to any surface (for outline)
+  float totalDistance     = 0.0;    // Total distance traveled by the ray
+  float minLnDist         = 1e10;   // Closest the ray came to any surface
+  float minLnDistSelected = 1e10;   // Closest the ray came to a selected shape (for outline)
+  float outlineRayDist    = 0.0;    // Ray distance when minLnDistSelected was set — used for threshold
 
   // ===================================================
   // The Marching Ray Loop
@@ -64,7 +66,15 @@ void main() {
   for(int i = 0; i < 80; i++) {
     vec3 currentPosition = rayOrigin + rayDirection * totalDistance;    // Current position along the ray
     float distToSurface  = map(currentPosition);                        // Distance to the closest surface
-    minLnDist     = min(minLnDist, distToSurface);                      // Track closest approach
+    minLnDist = min(minLnDist, distToSurface);                          // Track closest approach
+    // Clip selected-shape SDF against the combined scene SDF so the outline only
+    // appears on the *visible* surface — not inside boolean carve-outs, where mapSelected()
+    // would be negative even though the combined map() is positive (empty space).
+    float selDist        = max(mapSelected(currentPosition), distToSurface);
+    if (selDist < minLnDistSelected) {
+        minLnDistSelected = selDist;
+        outlineRayDist    = totalDistance;                              // Depth at closest approach to selection
+    }
     totalDistance += distToSurface;                                     // "March" forward by that distance
 
    // If the distance is tiny=> surface hit=> stop walking:
@@ -86,10 +96,12 @@ void main() {
 
   if(totalDistance < 10000.0) {
     vec3 pointOnSurface = rayOrigin + rayDirection * totalDistance;
-    vec3 surfaceNormal = getSurfaceNormal(pointOnSurface);
+    vec3 surfaceNormal  = getSurfaceNormal(pointOnSurface);
+    // Two-sided normals: flip if the normal points away from the camera (boolean cut surfaces)
+    if (dot(surfaceNormal, -rayDirection) < 0.0) surfaceNormal = -surfaceNormal;
     pixelColor = calculateLighting(pointOnSurface, surfaceNormal);
-  } else if (uIsSelected == 1 && minLnDist < 0.002 * length(uCamPos - uActiveShapePosOffset)) {
-    pixelColor = vec3(0.0, 0.784, 0.702);  // #00C8B3 — selection outline
+  } else if (minLnDistSelected < 0.002 * outlineRayDist) {
+    pixelColor = vec3(0.898, 0.757, 0.122);  // #E5C11F — accent yellow selection outline
   } else if (abs(rayDirection.y) > 0.0001) {
     // Grid floor at y=0 — intersect ray with the XZ plane
     float gridFloorT = -rayOrigin.y / rayDirection.y;

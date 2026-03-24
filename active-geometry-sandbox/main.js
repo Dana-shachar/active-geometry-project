@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import vertexShader from './shaders/vertex.glsl';
 import fragmentShader from './shaders/fragment.glsl';
+import pickingGlsl from './shaders/picking.glsl?raw';
 import sdfGlsl from './shaders/sdf.glsl?raw';
 import shapeMapperGlsl from './shaders/shapeMapper.glsl?raw';
 
@@ -10,7 +11,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { Gumball } from './js/gumball.js';
 import { TransformHandles } from './js/transformHandles.js';
 import { buildShaderBlock, buildUniforms, syncShapeUniforms } from './js/shapeBuilder.js';
-import { addShape, shapeList, activeShapeIndex, shapeListVersion, getActiveShape, setActiveShape } from './js/shapeManager.js';
+import { addShape, shapeList, activeShapeIndex, shapeListVersion, getActiveShape, setActiveShape, selectShape, toggleShapeSelection, selectedShapeIds, removeShape } from './js/shapeManager.js';
 
 //==========================================================
 // CORE ENGINE SETUP
@@ -44,7 +45,7 @@ const transformHandles = new TransformHandles(camera, settings, cameraControls, 
 const _rotMat4 = new THREE.Matrix4();
 
 // mouse controls for dragging the shape (when selected)
-initMouseControls(settings, renderer.domElement, cameraControls, (x, y) => findHitShape(x, y) >= 0, camera);
+initMouseControls(settings, renderer.domElement, cameraControls, (x, y) => pickShape(x, y) >= 0, camera);
 
 //==========================================================
 // KEYBOARD CAMERA CONTROLS
@@ -95,18 +96,18 @@ addShape('box');
 // A simple plane that covers the entire view. The raymarching shader will run for every pixel on this plane.
 const geometry = new THREE.PlaneGeometry(2, 2);
 
-// Builds the full fragment shader string from the current shape list.
+// Builds shader strings from the current shape list.
 // Called once at startup and again whenever a shape is added or removed.
 function buildFragmentShader() {
     return sdfGlsl + shapeMapperGlsl + buildShaderBlock(shapeList) + fragmentShader;
 }
+function buildPickingShader() {
+    return sdfGlsl + shapeMapperGlsl + buildShaderBlock(shapeList) + pickingGlsl;
+}
 
-// The ShaderMaterial allows to write custom GLSL code for how the surface should be rendered.
-// Shape uniforms are generated from the current shapeList and merged with scene-level uniforms.
-const material = new THREE.ShaderMaterial({
-  vertexShader,
-  fragmentShader: buildFragmentShader(),
-  uniforms: {
+// Uniforms shared by both the main material and the picking material.
+// Both materials reference this same object so per-frame updates reach both.
+const sharedUniforms = {
     uTime:       { value: 0 },
     uResolution: { value: new THREE.Vector2(window.innerWidth, window.innerHeight) },
     uLightX:     { value: settings.lightX },
@@ -115,27 +116,52 @@ const material = new THREE.ShaderMaterial({
     uCamMatrix:  { value: camera.matrixWorld },   // live reference — auto-updates with orbit
     uCamPos:     { value: camera.position },       // live reference — auto-updates with orbit
     uFocalLen:   { value: 1.0 / Math.tan((camera.fov / 2) * Math.PI / 180) },
-    ...buildUniforms(shapeList),                  // per-shape uniforms + uIsSelected + uActiveShapePosOffset
-  }
-});
+    ...buildUniforms(shapeList),
+};
+
+const material        = new THREE.ShaderMaterial({ vertexShader, fragmentShader: buildFragmentShader(), uniforms: sharedUniforms });
+const pickingMaterial = new THREE.ShaderMaterial({ vertexShader, fragmentShader: buildPickingShader(),  uniforms: sharedUniforms });
 
 // The mesh combines the geometry and material, and is added to the scene
 const mesh = new THREE.Mesh(geometry, material);
 scene.add(mesh);
 
+// Render target used by the GPU picking pass — same dimensions as the canvas.
+const pickingTarget = new THREE.WebGLRenderTarget(window.innerWidth, window.innerHeight);
+const _pickPixel    = new Uint8Array(4);   // reusable buffer for readRenderTargetPixels
+
 // Tracks the last known shapeListVersion — used to detect when a recompile is needed.
 let lastShapeListVersion = shapeListVersion;
 
-// Rebuilds the fragment shader and uniforms when shapes are added or removed.
-// Called from animate() when shapeListVersion changes.
+// Rebuilds both shaders and merges new per-shape uniforms when the shape list changes.
 function recompileShader() {
     const newShapeUniforms = buildUniforms(shapeList);
-    material.fragmentShader = buildFragmentShader();
-    // Merge new per-shape uniforms into the existing material uniforms object.
-    // Camera and lighting uniforms are preserved; shape uniforms are fully replaced.
-    Object.assign(material.uniforms, newShapeUniforms);
-    material.needsUpdate = true;
+    material.fragmentShader        = buildFragmentShader();
+    pickingMaterial.fragmentShader = buildPickingShader();
+    // Merge into sharedUniforms — both materials see the update automatically.
+    Object.assign(sharedUniforms, newShapeUniforms);
+    material.needsUpdate        = true;
+    pickingMaterial.needsUpdate = true;
     lastShapeListVersion = shapeListVersion;
+}
+
+// Renders the picking pass and returns the 0-based shape index under (clientX, clientY),
+// or -1 if the ray missed all geometry. Replaces the old bounding-box findHitShape.
+function pickShape(clientX, clientY) {
+    mesh.material = pickingMaterial;
+    renderer.setRenderTarget(pickingTarget);
+    renderer.render(scene, camera);
+    renderer.setRenderTarget(null);
+    mesh.material = material;
+
+    // WebGL Y origin is bottom-left; CSS Y origin is top-left — flip Y.
+    const x = Math.floor(clientX);
+    const y = Math.floor(window.innerHeight - clientY - 1);
+    renderer.readRenderTargetPixels(pickingTarget, x, y, 1, 1, _pickPixel);
+
+    // Red channel holds the 1-based shape index (0 = miss).
+    const index1Based = _pickPixel[0];
+    return index1Based > 0 ? index1Based - 1 : -1;
 }
 
 //==========================================================
@@ -150,11 +176,12 @@ function animate(time) {
     material.uniforms.uLightY.value       = settings.lightY;
     material.uniforms.uAmbientLight.value = settings.ambientLight;
     material.uniforms.uTime.value         = time * 0.001;
+    settings.uIsSelected = selectedShapeIds.size > 0 ? 1 : 0;
     material.uniforms.uIsSelected.value   = settings.uIsSelected;
     material.uniforms.uFocalLen.value     = 1.0 / Math.tan((camera.fov / 2) * Math.PI / 180);
 
     // Sync all shape params + rotation matrices to GPU (loops over shapeList)
-    syncShapeUniforms(shapeList, material.uniforms, activeShapeIndex, _rotMat4);
+    syncShapeUniforms(shapeList, material.uniforms, activeShapeIndex, _rotMat4, selectedShapeIds);
 
     // Sync zoom level to reflect scroll/orbit changes (updatePanels reads this to refresh the slider)
     const currentDistance = camera.position.distanceTo(cameraControls.target);
@@ -176,9 +203,10 @@ animate();
 //==========================================================
 window.addEventListener('resize', () => {
     renderer.setSize(window.innerWidth, window.innerHeight);
+    pickingTarget.setSize(window.innerWidth, window.innerHeight);
 
     // Update the uniform so the shader knows the new width/height
-    material.uniforms.uResolution.value.set(window.innerWidth, window.innerHeight);
+    sharedUniforms.uResolution.value.set(window.innerWidth, window.innerHeight);
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
 });
@@ -187,67 +215,39 @@ window.addEventListener('resize', () => {
 // CLICK SELECTION
 //==========================================================
 
-// Casts a ray from the camera through the clicked pixel and checks if it
-// intersects the bounding box of a given shape.
-function shapeHit(clientX, clientY, shape) {
-    const mouseNdc = {
-        x:  (clientX / window.innerWidth)  * 2 - 1,
-        y: -(clientY / window.innerHeight) * 2 + 1
-    };
-    const aspect    = window.innerWidth / window.innerHeight;
-    const focalLen  = 1.0 / Math.tan((camera.fov / 2) * Math.PI / 180);
-    const rayOrigin = camera.position.clone();
-    const rayDir    = new THREE.Vector3(mouseNdc.x * aspect, mouseNdc.y, -focalLen)
-                          .transformDirection(camera.matrixWorld)
-                          .normalize();
-
-    const bboxHalfX = shape.type === 'helix'  ? shape.width + shape.tubeRadius : shape.width;
-    const bboxHalfZ = shape.type === 'box'    ? shape.depth : bboxHalfX;
-    const bboxHalfY = shape.type === 'helix'  ? shape.turns * shape.stepHeight * 0.5 + shape.tubeRadius
-                    : (shape.type === 'sphere' || shape.type === 'polyhedron') ? shape.width
-                    : shape.height;
-
-    const bboxMin = shape.posOffset.clone().sub(new THREE.Vector3(bboxHalfX, bboxHalfY, bboxHalfZ));
-    const bboxMax = shape.posOffset.clone().add(new THREE.Vector3(bboxHalfX, bboxHalfY, bboxHalfZ));
-    return intersectBBox(rayOrigin, rayDir, bboxMin, bboxMax);
-}
-
-// Loops over all shapes and returns the index of the first one the ray hits, or -1.
-function findHitShape(clientX, clientY) {
-    for (let i = 0; i < shapeList.length; i++) {
-        if (shapeHit(clientX, clientY, shapeList[i])) return i;
-    }
-    return -1;
-}
-
-// Standard ray-box intersection test — returns true if ray hits the box, false if it misses
-function intersectBBox(rayOrigin, rayDir, bboxMin, bboxMax) {
-    let rayEnter = (bboxMin.x - rayOrigin.x) / rayDir.x;
-    let rayExit  = (bboxMax.x - rayOrigin.x) / rayDir.x;
-    if (rayEnter > rayExit) [rayEnter, rayExit] = [rayExit, rayEnter];
-
-    let yZoneEnter = (bboxMin.y - rayOrigin.y) / rayDir.y;
-    let yZoneExit  = (bboxMax.y - rayOrigin.y) / rayDir.y;
-    if (yZoneEnter > yZoneExit) [yZoneEnter, yZoneExit] = [yZoneExit, yZoneEnter];
-
-    if (rayEnter > yZoneExit || yZoneEnter > rayExit) return false;
-    if (yZoneEnter > rayEnter) rayEnter = yZoneEnter;
-    if (yZoneExit  < rayExit)  rayExit  = yZoneExit;
-
-    let zZoneEnter = (bboxMin.z - rayOrigin.z) / rayDir.z;
-    let zZoneExit  = (bboxMax.z - rayOrigin.z) / rayDir.z;
-    if (zZoneEnter > zZoneExit) [zZoneEnter, zZoneExit] = [zZoneExit, zZoneEnter];
-
-    if (rayEnter > zZoneExit || zZoneEnter > rayExit) return false;
-    return true;
-}
 
 // Click event on the canvas: handle clicks take priority, then shape selection.
-// Sets the active shape index and updates the selection uniform.
+// Shift+click adds/removes from multi-selection; plain click selects exactly one shape.
 renderer.domElement.addEventListener('click', (event) => {
     if (transformHandles.handleClick()) return;
-    const hitIndex = findHitShape(event.clientX, event.clientY);
-    setActiveShape(hitIndex);
-    settings.uIsSelected = hitIndex >= 0 ? 1 : 0;
+    const hitIndex = pickShape(event.clientX, event.clientY);
+    if (hitIndex >= 0 && event.shiftKey) {
+        const hitId = shapeList[hitIndex].id;
+        toggleShapeSelection(hitId);
+        if (selectedShapeIds.has(hitId)) {
+            // Shape was added to selection — make it the active shape
+            setActiveShape(hitIndex);
+        } else {
+            // Shape was removed — fall back to another selected shape, or clear
+            const fallbackIndex = shapeList.findIndex(s => selectedShapeIds.has(s.id));
+            setActiveShape(fallbackIndex);
+        }
+    } else {
+        selectShape(hitIndex);
+    }
+    settings.uIsSelected = selectedShapeIds.size > 0 ? 1 : 0;
     material.uniforms.uIsSelected.value = settings.uIsSelected;
+});
+
+// Delete or Backspace removes the active shape.
+window.addEventListener('keydown', (event) => {
+    if (event.key !== 'Delete' && event.key !== 'Backspace') return;
+    // Ignore if the user is typing in an input field
+    if (document.activeElement.tagName === 'INPUT') return;
+    const activeShape = getActiveShape();
+    if (!activeShape) return;
+    removeShape(activeShape.id);
+    selectShape(-1);
+    settings.uIsSelected = 0;
+    material.uniforms.uIsSelected.value = 0;
 });

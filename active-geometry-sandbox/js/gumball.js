@@ -29,9 +29,10 @@ export class Gumball {
 
     _buildPanel() {
         const btnStyle = `
-            padding: 4px 8px;
+            padding: 8px 8px 4px;
             cursor: pointer;
             font-size: 10px;
+            line-height: 0.9;
             font-family: Helvetica, sans-serif;
             background: #0C0C0D;
             color: #ffffff;

@@ -28,7 +28,7 @@ const DRAG_SENSITIVITY     = 0.2;                    // mm per pixel of mouse mo
 const SNAP_MOVE_MM         = 10;                     // Cmd/Ctrl+drag snaps to 10mm increments
 const DRAG_SENSITIVITY_ROT   = 0.5 * Math.PI / 180;   // radians per pixel for rotation drag
 const SNAP_ROTATE_RAD        = 15  * Math.PI / 180;   // Cmd/Ctrl+drag snaps to 15° increments
-const DRAG_SENSITIVITY_SCALE = 0.01;                   // scale factor per pixel (1%/px)
+const DRAG_SENSITIVITY_SCALE = 0.02;                   // scale factor per pixel (2%/px)
 const SNAP_SCALE_FACTOR      = 0.1;                    // Cmd/Ctrl+drag snaps to 10% increments
 
 export class TransformHandles {

@@ -3,9 +3,9 @@ import { getActiveShape } from './shapeManager.js';
 // Shared scene-level state — per-shape state lives on shape objects in shapeManager.js
 export const settings = {
     stage:            'unit_cell',
-    ambientLight:     0.1,
-    lightX:           2.0,
-    lightY:           2.0,
+    ambientLight:     0.2,
+    lightX:           -8.0,
+    lightY:           7.0,
     handleDragActive: false,  // true while a transform handle is being dragged
     zoomLevel:        100,
 };

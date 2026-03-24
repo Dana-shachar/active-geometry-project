@@ -19,7 +19,11 @@ const BOOLEAN_GLSL = {
 // ==========================================================
 export function buildShaderBlock(shapeList) {
     const uniformLines = [];
-    const mapBodyLines = ['float map(vec3 worldPos) {', '    float result = 1e10;'];
+    const mapBodyLines      = ['float map(vec3 worldPos) {',         '    float result = 1e10;'];
+    const mapSelectedLines  = ['float mapSelected(vec3 worldPos) {', '    float result = 1e10;'];
+    // mapIndex returns the 1-based list index of the union shape whose SDF is closest at worldPos.
+    // Used by the picking pass to identify which shape owns a hit pixel.
+    const mapIndexLines     = ['int mapIndex(vec3 worldPos) {', '    int bestIndex = 0;', '    float bestDist = 1e10;'];
 
     for (let shapeIndex = 0; shapeIndex < shapeList.length; shapeIndex++) {
         const prefix = `uShape${shapeIndex}`;
@@ -40,26 +44,50 @@ export function buildShaderBlock(shapeList) {
             `uniform float ${prefix}StepHeight;`,
             `uniform float ${prefix}Turns;`,
             `uniform int   ${prefix}LockProportions;`,
+            `uniform int   ${prefix}IsSelected;`,
         );
 
-        // Per-shape block inside map()
-        const boolOp = shapeList[shapeIndex].booleanOp;
-        const combineGlsl = BOOLEAN_GLSL[boolOp] ?? BOOLEAN_GLSL.union;
-        mapBodyLines.push(
-            `    {`,
+        // Shared SDF call snippet reused in both map() and mapSelected()
+        const sdfCall = [
             `        vec3 localPos = ${prefix}Rotation * (worldPos - ${prefix}PosOffset);`,
             `        float dist = shapeMapper(${prefix}Type, localPos, ${prefix}Width, ${prefix}Height,`,
             `            ${prefix}Depth, ${prefix}CornerRadius, ${prefix}Caps, ${prefix}Sides,`,
             `            ${prefix}PolyType, ${prefix}TubeRadius, ${prefix}StepHeight, ${prefix}Turns,`,
             `            ${prefix}LockProportions);`,
-            `        ${combineGlsl}`,
+        ];
+
+        // Per-shape block inside map() — uses baked boolean op
+        const boolOp = shapeList[shapeIndex].booleanOp;
+        const combineGlsl = BOOLEAN_GLSL[boolOp] ?? BOOLEAN_GLSL.union;
+        mapBodyLines.push(`    {`, ...sdfCall, `        ${combineGlsl}`, `    }`);
+
+        // Per-shape block inside mapSelected() — unions only selected shapes at runtime
+        mapSelectedLines.push(
+            `    if (${prefix}IsSelected == 1) {`,
+            ...sdfCall,
+            `        result = min(result, dist);`,
             `    }`,
         );
+
+        // Per-shape block inside mapIndex() — only union shapes are clickable/selectable
+        if (shapeList[shapeIndex].booleanOp === 'union') {
+            mapIndexLines.push(
+                `    {`,
+                ...sdfCall,
+                `        if (dist < bestDist) { bestDist = dist; bestIndex = ${shapeIndex + 1}; }`,
+                `    }`,
+            );
+        }
     }
 
     mapBodyLines.push('    return result;', '}');
+    mapSelectedLines.push('    return result;', '}');
+    mapIndexLines.push('    return bestIndex;', '}');
 
-    return uniformLines.join('\n') + '\n\n' + mapBodyLines.join('\n') + '\n';
+    return uniformLines.join('\n') + '\n\n'
+         + mapBodyLines.join('\n')     + '\n\n'
+         + mapSelectedLines.join('\n') + '\n\n'
+         + mapIndexLines.join('\n')    + '\n';
 }
 
 // ==========================================================
@@ -93,6 +121,7 @@ export function buildUniforms(shapeList) {
         uniforms[`${prefix}StepHeight`]      = { value: shape.stepHeight };
         uniforms[`${prefix}Turns`]           = { value: shape.turns };
         uniforms[`${prefix}LockProportions`] = { value: shape.lockProportions ? 1 : 0 };
+        uniforms[`${prefix}IsSelected`]      = { value: 0 };
     }
 
     return uniforms;
@@ -103,7 +132,7 @@ export function buildUniforms(shapeList) {
 // Called every frame from main.js animate() to push current
 // shape param values to the GPU. Does NOT recompile the shader.
 // ==========================================================
-export function syncShapeUniforms(shapeList, materialUniforms, activeShapeIndex, _rotMat4) {
+export function syncShapeUniforms(shapeList, materialUniforms, activeShapeIndex, _rotMat4, selectedShapeIds) {
     for (let shapeIndex = 0; shapeIndex < shapeList.length; shapeIndex++) {
         const shape  = shapeList[shapeIndex];
         const prefix = `uShape${shapeIndex}`;
@@ -121,6 +150,8 @@ export function syncShapeUniforms(shapeList, materialUniforms, activeShapeIndex,
         materialUniforms[`${prefix}StepHeight`].value      = shape.stepHeight;
         materialUniforms[`${prefix}Turns`].value           = shape.turns;
         materialUniforms[`${prefix}LockProportions`].value = shape.lockProportions ? 1 : 0;
+        // Non-union shapes are invisible in the viewport — suppress their outline too
+        materialUniforms[`${prefix}IsSelected`].value      = (selectedShapeIds?.has(shape.id) && shape.booleanOp === 'union') ? 1 : 0;
 
         // Sync rotation matrix: store inverse (transpose) so shader can apply it directly
         _rotMat4.makeRotationFromEuler(shape.rotation);

@@ -12,6 +12,7 @@ import { Gumball } from './js/gumball.js';
 import { TransformHandles } from './js/transformHandles.js';
 import { buildShaderBlock, buildUniforms, syncShapeUniforms } from './js/shapeBuilder.js';
 import { addShape, shapeList, activeShapeIndex, shapeListVersion, getActiveShape, setActiveShape, selectShape, toggleShapeSelection, selectedShapeIds, removeShape } from './js/shapeManager.js';
+import { pushSnapshot, undo, redo } from './js/history.js';
 
 //==========================================================
 // CORE ENGINE SETUP
@@ -215,7 +216,6 @@ window.addEventListener('resize', () => {
 // CLICK SELECTION
 //==========================================================
 
-
 // Click event on the canvas: handle clicks take priority, then shape selection.
 // Shift+click adds/removes from multi-selection; plain click selects exactly one shape.
 renderer.domElement.addEventListener('click', (event) => {
@@ -242,12 +242,24 @@ renderer.domElement.addEventListener('click', (event) => {
 // Delete or Backspace removes the active shape.
 window.addEventListener('keydown', (event) => {
     if (event.key !== 'Delete' && event.key !== 'Backspace') return;
-    // Ignore if the user is typing in an input field
     if (document.activeElement.tagName === 'INPUT') return;
     const activeShape = getActiveShape();
     if (!activeShape) return;
+    pushSnapshot();
     removeShape(activeShape.id);
     selectShape(-1);
     settings.uIsSelected = 0;
     material.uniforms.uIsSelected.value = 0;
+});
+
+// Cmd+Z — undo. Cmd+Shift+Z — redo.
+window.addEventListener('keydown', (event) => {
+    if (!(event.metaKey || event.ctrlKey) || event.key !== 'z') return;
+    if (document.activeElement.tagName === 'INPUT') return;
+    event.preventDefault();
+    if (event.shiftKey) {
+        redo();
+    } else {
+        undo();
+    }
 });

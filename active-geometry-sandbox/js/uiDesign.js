@@ -1,5 +1,6 @@
 import { settings } from './uiSettings.js';
 import { addShape, getActiveShape, setBooleanOp } from './shapeManager.js';
+import { pushSnapshot } from './history.js';
 
 // ============================================================
 // CONFIG
@@ -527,7 +528,7 @@ function localControls(shape, container) {
         input.value = Number(getValue()).toFixed(2);
         const commit = () => {
             const val = evalMath(input.value);
-            if (val !== null && val >= min) setValue(val);
+            if (val !== null && val >= min) { pushSnapshot(); setValue(val); }
             input.value = Number(getValue()).toFixed(2);
         };
         input.addEventListener('blur', commit);
@@ -544,7 +545,7 @@ function localControls(shape, container) {
         input.type = 'checkbox';
         input.className = 'ag-local-checkbox';
         input.checked = getValue();
-        input.addEventListener('change', () => setValue(input.checked));
+        input.addEventListener('change', () => { pushSnapshot(); setValue(input.checked); });
         return input;
     }
 
@@ -565,7 +566,7 @@ function localControls(shape, container) {
         sidesInput.value = shape.sides;
         const commitSides = () => {
             const val = Math.round(parseFloat(sidesInput.value));
-            if (val >= 3 && val <= 20) shape.sides = val;
+            if (val >= 3 && val <= 20) { pushSnapshot(); shape.sides = val; }
             sidesInput.value = shape.sides;
         };
         sidesInput.addEventListener('blur', commitSides);
@@ -583,7 +584,7 @@ function localControls(shape, container) {
             if (shape.polyType === val) opt.selected = true;
             select.appendChild(opt);
         });
-        select.addEventListener('change', () => { shape.polyType = parseInt(select.value); });
+        select.addEventListener('change', () => { pushSnapshot(); shape.polyType = parseInt(select.value); });
         addRow('Type', select);
     }
     if (shape.type === 'helix') {
@@ -606,6 +607,7 @@ function makeScrubber(input, getValue, setValue, min, sensitivity = 0.1, snapInc
         let hasMoved = false;
 
         const onMove = (moveEvent) => {
+            if (!hasMoved) pushSnapshot();
             hasMoved = true;
             let newVal = getValue() + moveEvent.movementX * sensitivity;
             if (moveEvent.metaKey || moveEvent.ctrlKey)
@@ -724,7 +726,7 @@ function buildLeftPanel() {
         btn.className = 'ag-primitive-btn';
         btn.textContent = icon;
         btn.title = label;
-        btn.addEventListener('click', () => addShape(type));
+        btn.addEventListener('click', () => { pushSnapshot(); addShape(type); });
         primList.appendChild(btn);
     });
     primPanel.appendChild(primList);
@@ -777,6 +779,7 @@ function buildRightPanel(rightOuter) {
             setValue(v);
             valDisplay.textContent = v.toFixed(2);
         });
+        slider.addEventListener('change', () => pushSnapshot());
         row.appendChild(lbl); row.appendChild(slider); row.appendChild(valDisplay);
         parent.appendChild(row);
     }

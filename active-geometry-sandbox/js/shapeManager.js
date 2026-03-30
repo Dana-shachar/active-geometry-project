@@ -131,3 +131,37 @@ export function getActiveShape() {
     if (activeShapeIndex < 0 || activeShapeIndex >= shapeList.length) return null;
     return shapeList[activeShapeIndex];
 }
+
+// Restore shapeList in-place from a unit_cell_tree array (history snapshot format).
+// Converts plain {x,y,z} back to THREE.Vector3 / THREE.Euler.
+// Keeps nextShapeId above any restored id so future shapes never collide.
+// Bumps shapeListVersion so main.js detects the change and recompiles the shader.
+export function restoreShapeList(unitCellTree) {
+    shapeList.length = 0;
+    let maxRestoredId = -1;
+    for (const node of unitCellTree) {
+        const restoredId = Number(node.node_id);
+        if (restoredId > maxRestoredId) maxRestoredId = restoredId;
+        shapeList.push({
+            id:              restoredId,
+            type:            node.type,
+            booleanOp:       node.booleanOp,
+            posOffset:       new THREE.Vector3(node.posOffset.x, node.posOffset.y, node.posOffset.z),
+            rotation:        new THREE.Euler(node.rotation.x,   node.rotation.y,  node.rotation.z),
+            lockProportions: node.lockProportions,
+            width:           node.parameters.width,
+            height:          node.parameters.height,
+            depth:           node.parameters.depth,
+            cornerRadius:    node.parameters.cornerRadius,
+            caps:            node.parameters.caps,
+            sides:           node.parameters.sides,
+            polyType:        node.parameters.polyType,
+            tubeRadius:      node.parameters.tubeRadius,
+            stepHeight:      node.parameters.stepHeight,
+            turns:           node.parameters.turns,
+        });
+    }
+    if (maxRestoredId >= nextShapeId) nextShapeId = maxRestoredId + 1;
+    activeShapeIndex = -1;
+    shapeListVersion++;
+}

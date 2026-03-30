@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { getActiveShape } from './shapeManager.js';
+import { pushSnapshot } from './history.js';
 
 // Each ring is perpendicular to its own axis (standard rotation handle convention).
 // X ring wraps in YZ plane, Y ring wraps in XZ plane, Z ring wraps in XY plane.
@@ -29,6 +30,19 @@ const SNAP_MOVE_MM         = 10;                     // Cmd/Ctrl+drag snaps to 1
 const DRAG_SENSITIVITY_ROT   = 0.5 * Math.PI / 180;   // radians per pixel for rotation drag
 const SNAP_ROTATE_RAD        = 15  * Math.PI / 180;   // Cmd/Ctrl+drag snaps to 15° increments
 const DRAG_SENSITIVITY_SCALE = 0.02;                   // scale factor per pixel (2%/px)
+const MIN_HANDLE_WORLD       = 5;                      // mm — handles never smaller than this
+const MAX_HANDLE_WORLD       = 40;                     // mm — handles never larger than this
+
+// Per-shape-type mapping: which param each axis scale cube drives.
+// Shapes with unused axes (e.g. polyhedron ignores height/depth) remap those axes to 'width'.
+const SHAPE_AXIS_TO_PARAM = {
+    box:        { x: 'width', y: 'height', z: 'depth'  },
+    cylinder:   { x: 'width', y: 'height', z: 'width'  },
+    prism:      { x: 'width', y: 'height', z: 'width'  },
+    sphere:     { x: 'width', y: 'width',  z: 'width'  },
+    polyhedron: { x: 'width', y: 'width',  z: 'width'  },
+    helix:      { x: 'width', y: 'width',  z: 'width'  },
+};
 const SNAP_SCALE_FACTOR      = 0.1;                    // Cmd/Ctrl+drag snaps to 10% increments
 
 export class TransformHandles {
@@ -69,7 +83,7 @@ export class TransformHandles {
             padding: 4px 8px;
             background: rgba(0,0,0,0.7);
             color: #fff;
-            font-size: 12px;
+            font: 400 12px var(--font);
             border-radius: 4px;
             pointer-events: none;
             display: none;
@@ -84,8 +98,7 @@ export class TransformHandles {
             padding: 3px 7px;
             background: rgba(0,0,0,0.8);
             color: #fff;
-            font-size: 13px;
-            font-family: monospace;
+            font: 400 12px var(--font);
             border-radius: 3px;
             pointer-events: none;
             display: none;
@@ -181,9 +194,14 @@ export class TransformHandles {
         const originScreen = this._project(origin);
         const mouseX   = this._mousePos.x;
         const mouseY   = this._mousePos.y;
-        const worldArrow = activeShape.width * ARROW_SCALE;
-        const worldRing  = activeShape.width * RING_SCALE;
-        const worldCube  = activeShape.width * CUBE_SCALE;
+        // Single effective size drives all three axes identically — handles are always proportional.
+        // Blends average and max dimension so one-axis elongation has ~50% the effect of proportional scaling.
+        const maxDim        = Math.max(activeShape.width, activeShape.height, activeShape.depth);
+        const avgDim        = (activeShape.width + activeShape.height + activeShape.depth) / 3;
+        const effectiveSize = Math.max(MIN_HANDLE_WORLD, Math.min(MAX_HANDLE_WORLD, (avgDim * 3 + maxDim) / 4));
+        const worldArrow    = effectiveSize * ARROW_SCALE;
+        const worldRing     = effectiveSize * RING_SCALE;
+        const worldCube     = effectiveSize * CUBE_SCALE;
 
         // === PASS 1: compute geometry + distances for every handle ===
         // Collect all candidates so we can find the single closest one before drawing.
@@ -327,15 +345,17 @@ export class TransformHandles {
         const validTypes = ['arrow', 'ring', 'cube', 'center'];
         if (!validTypes.includes(this._hoveredType) || this._hoveredKey === null) return;
 
-        // Mousedown on a hovered handle = activate + start drag immediately
+        // Mousedown on a hovered handle = activate + start drag immediately.
+        // Snapshot before any values change so undo restores the pre-drag state.
+        pushSnapshot();
         this._activeKey  = this._hoveredKey;
         this._activeType = this._hoveredType;
 
         this._isDragging  = true;
         this._dragAxisKey = this._hoveredKey;
 
-        const axisToParam  = { x: 'width', y: 'height', z: 'depth' };
         const dragShape    = getActiveShape();
+        const axisToParam  = SHAPE_AXIS_TO_PARAM[dragShape.type] ?? SHAPE_AXIS_TO_PARAM.box;
         if (this._hoveredType === 'ring') {
             this._dragStartValue = dragShape.rotation[this._hoveredKey];
         } else if (this._hoveredType === 'cube') {
@@ -381,8 +401,8 @@ export class TransformHandles {
         this._dragCumulativeDot += mouseEvent.movementX * dragDirX + mouseEvent.movementY * dragDirY;
 
         const cmdHeld      = mouseEvent.metaKey || mouseEvent.ctrlKey;
-        const axisToParam  = { x: 'width', y: 'height', z: 'depth' };
         const moveShape    = getActiveShape();
+        const axisToParam  = SHAPE_AXIS_TO_PARAM[moveShape.type] ?? SHAPE_AXIS_TO_PARAM.box;
         let newValue;
         let labelText;
 
@@ -404,6 +424,12 @@ export class TransformHandles {
                 : scaledValue;
             newValue = Math.max(0.1, newValue);
             moveShape[paramKey] = newValue;
+            // For locked-proportion shapes (sphere, polyhedron), keep height/depth in sync with width.
+            if (moveShape.lockProportions) {
+                moveShape.width  = newValue;
+                moveShape.height = newValue;
+                moveShape.depth  = newValue;
+            }
             labelText = `${paramKey.charAt(0).toUpperCase()}: ${newValue.toFixed(1)}`;
         } else if (this._activeType === 'center') {
             const rawScale    = this._dragCumulativeDot * DRAG_SENSITIVITY_SCALE;

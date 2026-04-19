@@ -30,8 +30,7 @@ const SNAP_MOVE_MM         = 10;                     // Cmd/Ctrl+drag snaps to 1
 const DRAG_SENSITIVITY_ROT   = 0.5 * Math.PI / 180;   // radians per pixel for rotation drag
 const SNAP_ROTATE_RAD        = 15  * Math.PI / 180;   // Cmd/Ctrl+drag snaps to 15° increments
 const DRAG_SENSITIVITY_SCALE = 0.02;                   // scale factor per pixel (2%/px)
-const MIN_HANDLE_WORLD       = 5;                      // mm — handles never smaller than this
-const MAX_HANDLE_WORLD       = 40;                     // mm — handles never larger than this
+const HANDLE_SIZE_RATIO      = 1;   // handles are always 25% of shape's average dimension
 
 // Per-shape-type mapping: which param each axis scale cube drives.
 // Shapes with unused axes (e.g. polyhedron ignores height/depth) remap those axes to 'width'.
@@ -194,11 +193,10 @@ export class TransformHandles {
         const originScreen = this._project(origin);
         const mouseX   = this._mousePos.x;
         const mouseY   = this._mousePos.y;
-        // Single effective size drives all three axes identically — handles are always proportional.
-        // Blends average and max dimension so one-axis elongation has ~50% the effect of proportional scaling.
-        const maxDim        = Math.max(activeShape.width, activeShape.height, activeShape.depth);
+        // effectiveSize = 25% of shape's average dimension.
+        // Handles always proportional to shape size — scales naturally with zoom.
         const avgDim        = (activeShape.width + activeShape.height + activeShape.depth) / 3;
-        const effectiveSize = Math.max(MIN_HANDLE_WORLD, Math.min(MAX_HANDLE_WORLD, (avgDim * 3 + maxDim) / 4));
+        const effectiveSize = avgDim * HANDLE_SIZE_RATIO;
         const worldArrow    = effectiveSize * ARROW_SCALE;
         const worldRing     = effectiveSize * RING_SCALE;
         const worldCube     = effectiveSize * CUBE_SCALE;

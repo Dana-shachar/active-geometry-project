@@ -10,8 +10,10 @@
 // These represent the active/selected shape — used by fragment.glsl
 // for the selection outline. Updated to the active shape's values each frame.
 // ==========================================================
-uniform int  uIsSelected;
-uniform vec3 uActiveShapePosOffset;
+uniform int   uIsSelected;
+uniform vec3  uActiveShapePosOffset;
+uniform int   uClipAxis;   // 0=off  1=X  2=Y  3=Z
+uniform float uClipPos;    // world-space position of the cut plane
 
 // ==========================================================
 // DISPATCH

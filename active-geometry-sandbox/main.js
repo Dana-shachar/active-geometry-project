@@ -176,6 +176,8 @@ function animate(time) {
     material.uniforms.uLightX.value       = settings.lightX;
     material.uniforms.uLightY.value       = settings.lightY;
     material.uniforms.uAmbientLight.value = settings.ambientLight;
+    material.uniforms.uClipAxis.value     = settings.clipAxis;
+    material.uniforms.uClipPos.value      = settings.clipPos;
     material.uniforms.uTime.value         = time * 0.001;
     settings.uIsSelected = selectedShapeIds.size > 0 ? 1 : 0;
     material.uniforms.uIsSelected.value   = settings.uIsSelected;

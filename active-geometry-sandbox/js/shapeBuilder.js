@@ -45,6 +45,8 @@ export function buildShaderBlock(shapeList) {
             `uniform float ${prefix}Turns;`,
             `uniform int   ${prefix}LockProportions;`,
             `uniform int   ${prefix}IsSelected;`,
+            `uniform int   ${prefix}ShellEnabled;`,
+            `uniform float ${prefix}ShellThickness;`,
         );
 
         // Shared SDF call snippet reused in both map() and mapSelected()
@@ -54,6 +56,7 @@ export function buildShaderBlock(shapeList) {
             `            ${prefix}Depth, ${prefix}CornerRadius, ${prefix}Caps, ${prefix}Sides,`,
             `            ${prefix}PolyType, ${prefix}TubeRadius, ${prefix}StepHeight, ${prefix}Turns,`,
             `            ${prefix}LockProportions);`,
+            `        if (${prefix}ShellEnabled == 1) dist = max(dist, -(dist + ${prefix}ShellThickness));`,
         ];
 
         // Per-shape block inside map() — uses baked boolean op
@@ -101,6 +104,8 @@ export function buildUniforms(shapeList) {
     const uniforms = {
         uIsSelected:           { value: 0 },
         uActiveShapePosOffset: { value: new THREE.Vector3() },
+        uClipAxis:             { value: 0 },
+        uClipPos:              { value: 0 },
     };
 
     for (let shapeIndex = 0; shapeIndex < shapeList.length; shapeIndex++) {
@@ -122,6 +127,8 @@ export function buildUniforms(shapeList) {
         uniforms[`${prefix}Turns`]           = { value: shape.turns };
         uniforms[`${prefix}LockProportions`] = { value: shape.lockProportions ? 1 : 0 };
         uniforms[`${prefix}IsSelected`]      = { value: 0 };
+        uniforms[`${prefix}ShellEnabled`]    = { value: shape.shellEnabled  ? 1 : 0 };
+        uniforms[`${prefix}ShellThickness`]  = { value: shape.shellThickness };
     }
 
     return uniforms;
@@ -152,6 +159,8 @@ export function syncShapeUniforms(shapeList, materialUniforms, activeShapeIndex,
         materialUniforms[`${prefix}LockProportions`].value = shape.lockProportions ? 1 : 0;
         // Non-union shapes are invisible in the viewport — suppress their outline too
         materialUniforms[`${prefix}IsSelected`].value      = (selectedShapeIds?.has(shape.id) && shape.booleanOp === 'union') ? 1 : 0;
+        materialUniforms[`${prefix}ShellEnabled`].value    = shape.shellEnabled  ? 1 : 0;
+        materialUniforms[`${prefix}ShellThickness`].value  = shape.shellThickness;
 
         // Sync rotation matrix: store inverse (transpose) so shader can apply it directly
         _rotMat4.makeRotationFromEuler(shape.rotation);

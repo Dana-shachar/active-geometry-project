@@ -29,9 +29,7 @@ export function toSnapshot() {
             ambientLight:       settings.ambientLight,
             lightX:             settings.lightX,
             lightY:             settings.lightY,
-            // Phase 2 placeholders — filled in when those features ship
-            shell_mode:         false,
-            shell_thickness_mm: 0.0,
+            // Phase 2 placeholder
             fillet_radius_mm:   0.0,
             // Phase 4 placeholder
             target_material:    null,
@@ -53,9 +51,11 @@ export function toSnapshot() {
                 caps:         shape.caps,
                 sides:        shape.sides,
                 polyType:     shape.polyType,
-                tubeRadius:   shape.tubeRadius,
-                stepHeight:   shape.stepHeight,
-                turns:        shape.turns,
+                tubeRadius:    shape.tubeRadius,
+                stepHeight:    shape.stepHeight,
+                turns:         shape.turns,
+                shellEnabled:  shape.shellEnabled,
+                shellThickness: shape.shellThickness,
             },
         })),
     };

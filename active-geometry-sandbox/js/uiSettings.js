@@ -8,6 +8,8 @@ export const settings = {
     lightY:           7.0,
     handleDragActive: false,  // true while a transform handle is being dragged
     zoomLevel:        100,
+    clipAxis:         0,      // 0=off  1=X  2=Y  3=Z
+    clipPos:          0,
 };
 
 export function initMouseControls(settings, canvas, cameraControls, shapeHit, camera) {

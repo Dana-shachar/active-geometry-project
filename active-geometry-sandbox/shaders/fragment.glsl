@@ -94,13 +94,66 @@ void main() {
   vec3 finalPos = rayOrigin + rayDirection * totalDistance;
   if (totalDistance < 10000.0 && map(finalPos) > 0.05) totalDistance = 1e10;
 
-  if(totalDistance < 10000.0) {
+  // Clip plane: discard hits on the positive side of the chosen plane.
+  // uClipAxis: 1=YZ plane (X normal)  2=XZ plane (Y normal)  3=XY plane (Z normal)
+  // Tracks whether clipping fired and finds the ray-plane intersection for cross-section drawing.
+  bool wasClipped = false;
+  float clipCrossT = -1.0;
+  if (totalDistance < 10000.0 && uClipAxis != 0) {
+    vec3 hitPos = rayOrigin + rayDirection * totalDistance;
+    if ((uClipAxis == 1 && hitPos.x > uClipPos) ||
+        (uClipAxis == 2 && hitPos.y > uClipPos) ||
+        (uClipAxis == 3 && hitPos.z > uClipPos)) {
+      totalDistance = 1e10;
+      wasClipped = true;
+      // How fast the ray moves along the clip axis, and how far the clip plane is from the ray origin.
+      float clipRaySpeed    = (uClipAxis == 1) ? rayDirection.x : (uClipAxis == 2) ? rayDirection.y : rayDirection.z;
+      float clipPlaneOffset = (uClipAxis == 1) ? uClipPos - rayOrigin.x : (uClipAxis == 2) ? uClipPos - rayOrigin.y : uClipPos - rayOrigin.z;
+      if (abs(clipRaySpeed) > 0.0001) clipCrossT = clipPlaneOffset / clipRaySpeed;
+    }
+  }
+
+  // Second march pass: only runs when a ray was clipped.
+  // Resumes marching from the clip plane to find inner surfaces (e.g. hollow shell walls)
+  // visible through the cut opening. Has no effect when clip is off (wasClipped stays false).
+  float innerHitDistance = 1e10;
+  if (wasClipped && clipCrossT > 0.0) {
+    vec3  innerRayOrigin   = rayOrigin + rayDirection * clipCrossT;
+    float innerMarchDist   = 0.01;
+    for (int i = 0; i < 64; i++) {
+      vec3  innerCurrentPos = innerRayOrigin + rayDirection * innerMarchDist;
+      float innerSdfDist    = map(innerCurrentPos);
+      innerMarchDist += innerSdfDist;
+      if (innerSdfDist < 0.001 || innerMarchDist > 10000.0) break;
+    }
+    // Accept hit only if it converged and landed on the unclipped side
+    if (innerMarchDist < 10000.0) {
+      vec3  innerHitPos   = innerRayOrigin + rayDirection * innerMarchDist;
+      float innerHitCoord = (uClipAxis == 1) ? innerHitPos.x : (uClipAxis == 2) ? innerHitPos.y : innerHitPos.z;
+      if (innerHitCoord <= uClipPos && map(innerHitPos) < 0.05) innerHitDistance = innerMarchDist;
+    }
+  }
+
+  if (totalDistance < 10000.0) {
     vec3 pointOnSurface = rayOrigin + rayDirection * totalDistance;
     vec3 surfaceNormal  = getSurfaceNormal(pointOnSurface);
     // Two-sided normals: flip if the normal points away from the camera (boolean cut surfaces)
     if (dot(surfaceNormal, -rayDirection) < 0.0) surfaceNormal = -surfaceNormal;
     pixelColor = calculateLighting(pointOnSurface, surfaceNormal);
-  } else if (minLnDistSelected < 0.002 * outlineRayDist) {
+  } else if (wasClipped && innerHitDistance < 10000.0) {
+    // Inner surface found through the cut opening — render it normally.
+    vec3 innerSurfacePos    = rayOrigin + rayDirection * (clipCrossT + innerHitDistance);
+    vec3 innerSurfaceNormal = getSurfaceNormal(innerSurfacePos);
+    if (dot(innerSurfaceNormal, -rayDirection) < 0.0) innerSurfaceNormal = -innerSurfaceNormal;
+    pixelColor = calculateLighting(innerSurfacePos, innerSurfaceNormal);
+  } else if (wasClipped && clipCrossT > 0.0 && map(rayOrigin + rayDirection * clipCrossT) < 0.0) {
+    // Cross-section face: the clip-plane intersection is inside solid geometry — draw a lit cut face.
+    vec3 clipFacePos    = rayOrigin + rayDirection * clipCrossT;
+    vec3 clipFaceNormal = (uClipAxis == 1) ? vec3(-sign(rayDirection.x), 0.0, 0.0)
+                        : (uClipAxis == 2) ? vec3(0.0, -sign(rayDirection.y), 0.0)
+                        :                   vec3(0.0, 0.0, -sign(rayDirection.z));
+    pixelColor = calculateLighting(clipFacePos, clipFaceNormal);
+  } else if (!wasClipped && minLnDistSelected < 0.002 * outlineRayDist) {
     pixelColor = vec3(0.898, 0.757, 0.122);  // #E5C11F — accent yellow selection outline
   } else if (abs(rayDirection.y) > 0.0001) {
     // Grid floor at y=0 — intersect ray with the XZ plane

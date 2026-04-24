@@ -37,6 +37,9 @@ function createShape(type) {
         tubeRadius:      2,               // helix: wire cross-section radius (mm)
         stepHeight:      10,              // helix: axial rise per full turn (mm)
         turns:           3,               // helix: number of turns
+        // shell modifier
+        shellEnabled:    false,
+        shellThickness:  1.0,
     };
 }
 
@@ -159,6 +162,8 @@ export function restoreShapeList(unitCellTree) {
             tubeRadius:      node.parameters.tubeRadius,
             stepHeight:      node.parameters.stepHeight,
             turns:           node.parameters.turns,
+            shellEnabled:    node.parameters.shellEnabled  ?? false,
+            shellThickness:  node.parameters.shellThickness ?? 1.0,
         });
     }
     if (maxRestoredId >= nextShapeId) nextShapeId = maxRestoredId + 1;

@@ -1,11 +1,11 @@
 import { settings } from './uiSettings.js';
-import { addShape, getActiveShape, setBooleanOp } from './shapeManager.js';
+import { addShape, getActiveShape, setBooleanOp, selectedShapeIds } from './shapeManager.js';
 import { pushSnapshot } from './history.js';
 
 // ============================================================
 // CONFIG
 // ============================================================
-const STAGE_NAMES = ['Unit Cell', 'Locking', 'Lattice', 'Geometry Simulation'];
+const STAGE_NAMES = ['Scene', 'Shape', 'Export & Import'];
 
 const PRIMITIVE_TYPES = [
     { type: 'sphere',     label: 'Sphere',     icon: '●' },
@@ -20,6 +20,12 @@ const PRIMITIVE_TYPES = [
 let posInputs              = {};
 let rotInputs              = {};
 let scaleInputs            = {};
+let shellTogglePill        = null;
+let shellThicknessField    = null;
+let shellClipContainer     = null;
+let shapeControlsEl        = null;
+let activateTab            = null;   // fn(tabName) — programmatically switches tabs
+let lastSelectionSize      = 0;
 let localControlsContainer = null;
 let lastRenderedShapeId    = -1;
 let lastRenderedShapeType  = null;
@@ -118,6 +124,11 @@ function injectStyles() {
             --shape-menu-gap:             8px;
             --tab-height:                 32px;
             --tab-padding:                8px;
+
+            --shell-toggle-frame-size:    36px;
+            --shell-toggle-pill-w:        32px;
+            --shell-toggle-pill-h:        16px;
+            --shell-toggle-circle:        12px;
         }
 
         *, *::before, *::after { box-sizing: border-box; }
@@ -150,8 +161,9 @@ function injectStyles() {
         .ag-right-outer {
             position: fixed;
             top: 0; right: 0;
-            width: fit-content;
+            width: max-content;
             max-width: var(--right-panel-max-width);
+            min-height: 100vh;
             max-height: 100vh;
             background: var(--bg-panel);
             border-radius: var(--panel-radius);
@@ -174,8 +186,10 @@ function injectStyles() {
         .ag-stage-tabs {
             display: flex;
             flex-shrink: 0;
+            width: 100%;
         }
         .ag-stage-tab {
+            flex: 1;
             height: var(--tab-height);
             padding: 0 var(--tab-padding);
             display: flex;
@@ -403,6 +417,96 @@ function injectStyles() {
         .ag-bool-btn:hover,
         .ag-bool-btn.ag-active { background: var(--btn-icon-active-bg); }
         .ag-bool-btn:disabled { opacity: var(--btn-disabled-bg-opacity); cursor: default; }
+
+        /* ── Shell toggle ── */
+        .ag-shell-toggle-row {
+            display: flex;
+            align-items: center;
+            gap: var(--text-input-gap);
+            cursor: pointer;
+        }
+        .ag-shell-toggle-frame {
+            width: var(--shell-toggle-frame-size);
+            height: var(--shell-toggle-frame-size);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+        .ag-shell-toggle-pill {
+            width: var(--shell-toggle-pill-w);
+            height: var(--shell-toggle-pill-h);
+            border-radius: 8px;
+            background: var(--btn-icon-bg);
+            border: var(--btn-stroke-weight) solid var(--btn-stroke);
+            display: flex;
+            align-items: center;
+            padding: 2px;
+        }
+        .ag-shell-toggle-circle {
+            width: var(--shell-toggle-circle);
+            height: var(--shell-toggle-circle);
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.3);
+            transition: transform 0.15s ease, background 0.1s;
+            flex-shrink: 0;
+        }
+        .ag-shell-toggle-pill.ag-active .ag-shell-toggle-circle {
+            transform: translateX(calc(var(--shell-toggle-pill-w) - var(--shell-toggle-circle) - 4px));
+            background: var(--accent-primary);
+        }
+        .ag-shell-toggle-label {
+            font: 300 12px var(--font);
+            color: var(--text-primary);
+        }
+        .ag-shell-form {
+            display: grid;
+            grid-template-columns: max-content 1fr;
+            column-gap: var(--text-input-gap);
+            row-gap: var(--item-gap);
+            align-items: center;
+        }
+        .ag-shell-form label {
+            font: 300 12px var(--font);
+            color: var(--text-primary);
+            white-space: nowrap;
+        }
+        .ag-shell-thickness-field {
+            flex: 1;
+            cursor: ew-resize;
+            background: var(--input-fill);
+            border: var(--input-stroke-weight) solid var(--input-stroke);
+            border-radius: 2px;
+            color: var(--text-primary);
+            font: 300 12px var(--font);
+            line-height: 0.9;
+            padding: 6px 4px 4px;
+            text-align: center;
+        }
+        .ag-shell-thickness-field:focus { outline: none; border-color: var(--input-focus-stroke); }
+        .ag-shell-thickness-field:disabled {
+            opacity: var(--btn-disabled-text-opacity);
+            cursor: default;
+        }
+        .ag-tab-panel {
+            display: flex;
+            flex-direction: column;
+            gap: var(--section-gap);
+        }
+        .ag-tab-panel--hidden {
+            visibility: hidden;
+            height: 0;
+            overflow: hidden;
+        }
+        .ag-shape-controls-wrapper {
+            display: flex;
+            flex-direction: column;
+            gap: var(--section-gap);
+        }
+        .ag-shell-section-disabled {
+            opacity: var(--btn-disabled-text-opacity);
+            pointer-events: none;
+        }
 
         /* ── Local controls ── */
         .ag-local-row {
@@ -738,6 +842,70 @@ function buildLeftPanel() {
 // ============================================================
 // RIGHT PANEL
 // ============================================================
+function buildClipControls(forGrid = false) {
+    const container = document.createElement('div');
+    container.style.cssText = forGrid ? 'display:none' : 'display:flex; flex-direction:column; gap:var(--item-gap)';
+
+    const axisLbl = document.createElement('label');
+    axisLbl.textContent = 'Clip axis';
+    const axisSelect = document.createElement('select');
+    axisSelect.className = 'ag-compact-select';
+    [['Off', 0], ['YZ', 1], ['XZ', 2], ['XY', 3]].forEach(([name, val]) => {
+        const opt = document.createElement('option');
+        opt.value = val; opt.textContent = name;
+        if (settings.clipAxis === val) opt.selected = true;
+        axisSelect.appendChild(opt);
+    });
+
+    const posLbl = document.createElement('label');
+    posLbl.textContent = 'Position (mm)';
+    const posInput = document.createElement('input');
+    posInput.type = 'text';
+    posInput.className = forGrid ? 'ag-shell-thickness-field' : 'ag-local-input';
+    posInput.value = Number(settings.clipPos).toFixed(1);
+
+    const commitPos = () => {
+        const val = evalMath(posInput.value);
+        if (val !== null) settings.clipPos = val;
+        posInput.value = Number(settings.clipPos).toFixed(1);
+    };
+    posInput.addEventListener('blur', commitPos);
+    posInput.addEventListener('keydown', e => {
+        if (e.key === 'Enter') { commitPos(); posInput.blur(); }
+        if (e.key === 'Escape') posInput.blur();
+    });
+    makeScrubber(posInput, () => settings.clipPos, v => { settings.clipPos = v; }, -200, 0.5, 5);
+
+    function updateEnabled() {
+        const isOff = settings.clipAxis === 0;
+        posInput.disabled = isOff;
+        posLbl.style.opacity = isOff ? 'var(--btn-disabled-text-opacity)' : '1';
+        posInput.style.opacity = isOff ? 'var(--btn-disabled-text-opacity)' : '1';
+        posInput.style.pointerEvents = isOff ? 'none' : 'auto';
+    }
+    updateEnabled();
+
+    axisSelect.addEventListener('change', () => {
+        settings.clipAxis = parseInt(axisSelect.value);
+        updateEnabled();
+    });
+
+    if (forGrid) {
+        container.appendChild(axisLbl); container.appendChild(axisSelect);
+        container.appendChild(posLbl);  container.appendChild(posInput);
+    } else {
+        const axisRow = document.createElement('div');
+        axisRow.className = 'ag-local-row';
+        axisRow.appendChild(axisLbl); axisRow.appendChild(axisSelect);
+        const posRow = document.createElement('div');
+        posRow.className = 'ag-local-row';
+        posRow.appendChild(posLbl); posRow.appendChild(posInput);
+        container.appendChild(axisRow); container.appendChild(posRow);
+    }
+
+    return container;
+}
+
 function buildRightPanel(rightOuter) {
     const content = document.createElement('div');
     content.className = 'ag-right-content';
@@ -784,16 +952,28 @@ function buildRightPanel(rightOuter) {
         parent.appendChild(row);
     }
 
-    // ---- LIGHTING ----
+    // ---- SCENE PANEL ----
+    const scenePanel = document.createElement('div');
+    scenePanel.className = 'ag-tab-panel';
     const lightSection = section('Lighting');
     addSlider(lightSection, 'Ambient light',  0,   0.5, 0.01, () => settings.ambientLight, v => { settings.ambientLight = v; });
     addSlider(lightSection, 'X pos light',   -10,  10,  0.1,  () => settings.lightX,       v => { settings.lightX = v; });
     addSlider(lightSection, 'Y pos light',   -10,  10,  0.1,  () => settings.lightY,       v => { settings.lightY = v; });
-    content.appendChild(lightSection);
-    content.appendChild(divider());
+    scenePanel.appendChild(lightSection);
+    scenePanel.appendChild(divider());
+
+    // ---- DISPLAY SECTION ----
+    const displaySection = section('Display');
+    displaySection.appendChild(buildClipControls());
+    scenePanel.appendChild(displaySection);
+    content.appendChild(scenePanel);
+
+    // ---- SHAPE PANEL ----
+    const shapePanel = document.createElement('div');
+    shapePanel.className = 'ag-tab-panel ag-tab-panel--hidden';
 
     // ---- ALIGNMENT (placeholder) ----
-    const alignSection = section('Local Controls');
+    const alignSection = section('Alignment');
     const alignRow = document.createElement('div');
     alignRow.className = 'ag-local-row';
     const alignLabel = document.createElement('label');
@@ -819,17 +999,22 @@ function buildRightPanel(rightOuter) {
         alignBtns.appendChild(btn);
     }
     alignSection.appendChild(alignBtns);
-    content.appendChild(alignSection);
-    content.appendChild(divider());
+    shapePanel.appendChild(alignSection);
+    shapePanel.appendChild(divider());
 
     // ---- SHAPE LOCAL CONTROLS ----
-    const localSection = section('Shape Local Controls');
+    // ---- SHAPE CONTROLS WRAPPER (greyed out when nothing selected) ----
+    const shapeControlsWrapper = document.createElement('div');
+    shapeControlsWrapper.className = 'ag-shape-controls-wrapper';
+    shapeControlsEl = shapeControlsWrapper;
+
+    const localSection = section(null);
     localControlsContainer = document.createElement('div');
     localControlsContainer.className = 'ag-panel-section';
     localSection.appendChild(localControlsContainer);
     localControls(getActiveShape(), localControlsContainer);
-    content.appendChild(localSection);
-    content.appendChild(divider());
+    shapeControlsWrapper.appendChild(localSection);
+    shapeControlsWrapper.appendChild(divider());
 
     // ---- TRANSFORM ----
     const transformSection = section('Transform');
@@ -879,8 +1064,8 @@ function buildRightPanel(rightOuter) {
     resetRotBtn.addEventListener('click', () => { getActiveShape()?.rotation.set(0, 0, 0); });
     transformSection.appendChild(resetRotBtn);
 
-    content.appendChild(transformSection);
-    content.appendChild(divider());
+    shapeControlsWrapper.appendChild(transformSection);
+    shapeControlsWrapper.appendChild(divider());
 
     // ---- BOOLEANS ----
     const boolSection = section('Booleans');
@@ -906,8 +1091,79 @@ function buildRightPanel(rightOuter) {
         boolButtons.appendChild(btn);
     });
     boolSection.appendChild(boolButtons);
-    content.appendChild(boolSection);
-    content.appendChild(divider());
+    shapeControlsWrapper.appendChild(boolSection);
+    shapeControlsWrapper.appendChild(divider());
+
+    // ---- SHELL ----
+    const shellSection = section('Shell');
+
+    const shellToggleRow = document.createElement('div');
+    shellToggleRow.className = 'ag-shell-toggle-row';
+
+    const shellFrame = document.createElement('div');
+    shellFrame.className = 'ag-shell-toggle-frame';
+    shellTogglePill = document.createElement('div');
+    shellTogglePill.className = 'ag-shell-toggle-pill';
+    const shellCircle = document.createElement('div');
+    shellCircle.className = 'ag-shell-toggle-circle';
+    shellTogglePill.appendChild(shellCircle);
+    shellFrame.appendChild(shellTogglePill);
+
+    const shellLabel = document.createElement('span');
+    shellLabel.className = 'ag-shell-toggle-label';
+    shellLabel.textContent = 'Shell';
+
+    shellToggleRow.appendChild(shellFrame);
+    shellToggleRow.appendChild(shellLabel);
+    shellToggleRow.addEventListener('click', () => {
+        const shape = getActiveShape();
+        if (!shape) return;
+        pushSnapshot();
+        shape.shellEnabled = !shape.shellEnabled;
+        shellTogglePill.classList.toggle('ag-active', shape.shellEnabled);
+        shellThicknessField.disabled = !shape.shellEnabled;
+        if (shellClipContainer) shellClipContainer.style.display = shape.shellEnabled ? 'contents' : 'none';
+    });
+    shellSection.appendChild(shellToggleRow);
+
+    const shellFormGrid = document.createElement('div');
+    shellFormGrid.className = 'ag-shell-form';
+
+    const shellThicknessLabel = document.createElement('label');
+    shellThicknessLabel.textContent = 'Wall thickness (mm)';
+    shellThicknessField = document.createElement('input');
+    shellThicknessField.type = 'text';
+    shellThicknessField.className = 'ag-shell-thickness-field';
+    shellThicknessField.disabled = true;
+    const commitThickness = () => {
+        const shape = getActiveShape();
+        if (!shape) return;
+        const val = evalMath(shellThicknessField.value);
+        if (val !== null && val > 0) { pushSnapshot(); shape.shellThickness = val; }
+        shellThicknessField.value = Number(shape?.shellThickness ?? 1).toFixed(2);
+    };
+    shellThicknessField.addEventListener('blur', commitThickness);
+    shellThicknessField.addEventListener('keydown', e => {
+        if (e.key === 'Enter') { commitThickness(); shellThicknessField.blur(); }
+        if (e.key === 'Escape') shellThicknessField.blur();
+    });
+    makeScrubber(shellThicknessField, () => getActiveShape()?.shellThickness ?? 1, v => { const s = getActiveShape(); if (s) s.shellThickness = Math.max(0.1, v); }, 0.1, 0.1, 0.5);
+    shellFormGrid.appendChild(shellThicknessLabel);
+    shellFormGrid.appendChild(shellThicknessField);
+    shellSection.appendChild(shellFormGrid);
+
+    shellClipContainer = buildClipControls(true);
+    shellClipContainer.style.display = 'none';
+    shellFormGrid.appendChild(shellClipContainer);
+
+    shapeControlsWrapper.appendChild(shellSection);
+    shapeControlsWrapper.appendChild(divider());
+    shapePanel.appendChild(shapeControlsWrapper);
+    content.appendChild(shapePanel);
+
+    // ---- EXPORT & IMPORT PANEL ----
+    const exportImportPanel = document.createElement('div');
+    exportImportPanel.className = 'ag-tab-panel ag-tab-panel--hidden';
 
     // ---- EXPORT ----
     const exportSection = section('Export');
@@ -932,8 +1188,8 @@ function buildRightPanel(rightOuter) {
     exportBtn.className = 'ag-action-btn';
     exportBtn.textContent = 'EXPORT FILE';
     exportSection.appendChild(exportBtn);
-    content.appendChild(exportSection);
-    content.appendChild(divider());
+    exportImportPanel.appendChild(exportSection);
+    exportImportPanel.appendChild(divider());
 
     // ---- UPLOAD ----
     const uploadSection = section('Upload');
@@ -941,7 +1197,14 @@ function buildRightPanel(rightOuter) {
     uploadBtn.className = 'ag-action-btn';
     uploadBtn.textContent = 'UPLOAD FILE';
     uploadSection.appendChild(uploadBtn);
-    content.appendChild(uploadSection);
+    exportImportPanel.appendChild(uploadSection);
+    content.appendChild(exportImportPanel);
+
+    return [
+        { name: 'Scene',            el: scenePanel },
+        { name: 'Shape',            el: shapePanel },
+        { name: 'Export & Import',  el: exportImportPanel },
+    ];
 }
 
 // ============================================================
@@ -949,6 +1212,14 @@ function buildRightPanel(rightOuter) {
 // ============================================================
 export function updatePanels() {
     const shape = getActiveShape();
+
+    // Auto-switch tabs on selection change
+    if (activateTab) {
+        const currentSize = selectedShapeIds.size;
+        if (currentSize > 0 && lastSelectionSize === 0) activateTab('Shape');
+        if (currentSize === 0 && lastSelectionSize > 0) activateTab('Scene');
+        lastSelectionSize = currentSize;
+    }
 
     // Rebuild local controls only when active shape changes
     if (localControlsContainer) {
@@ -966,6 +1237,17 @@ export function updatePanels() {
         if (!field || document.activeElement === field) return;
         const formatted = Number(value).toFixed(2);
         if (field.value !== formatted) field.value = formatted;
+    }
+
+    // Refresh shell toggle + thickness field
+    if (shellTogglePill && shellThicknessField && shapeControlsEl) {
+        shapeControlsEl.classList.toggle('ag-shell-section-disabled', selectedShapeIds.size === 0);
+        shellTogglePill.classList.toggle('ag-active', !!shape?.shellEnabled);
+        shellThicknessField.disabled = !shape?.shellEnabled;
+        if (shellClipContainer) shellClipContainer.style.display = shape?.shellEnabled ? 'contents' : 'none';
+        if (shape && document.activeElement !== shellThicknessField) {
+            shellThicknessField.value = Number(shape.shellThickness).toFixed(2);
+        }
     }
 
     if (shape) {
@@ -999,22 +1281,32 @@ export function initPanels() {
     document.body.appendChild(rightOuter);
 
     buildStageTabs(rightOuter);
-    buildRightPanel(rightOuter);
+    const panels = buildRightPanel(rightOuter);
+    rightOuter._initTabSwitcher(panels);
 }
 
 function buildStageTabs(rightOuter) {
     const tabs = document.createElement('div');
     tabs.className = 'ag-stage-tabs';
+    const tabButtons = [];
+
     STAGE_NAMES.forEach((name, i) => {
         const tab = document.createElement('button');
         tab.className = 'ag-stage-tab' + (i === 0 ? ' ag-active' : '');
-        tab.textContent = name; tab.title = name;
-        tab.addEventListener('click', () => {
-            tabs.querySelectorAll('.ag-stage-tab').forEach(t => t.classList.remove('ag-active'));
-            tab.classList.add('ag-active');
-            settings.stage = name.toLowerCase().replace(/\s+/g, '_');
-        });
+        tab.textContent = name;
+        tab.addEventListener('click', () => activateTab && activateTab(name));
         tabs.appendChild(tab);
+        tabButtons.push({ name, tab });
     });
+
     rightOuter.appendChild(tabs);
+
+    // Called after buildRightPanel has created the panels
+    rightOuter._initTabSwitcher = (panels) => {
+        activateTab = (targetName) => {
+            tabButtons.forEach(({ name, tab }) => tab.classList.toggle('ag-active', name === targetName));
+            panels.forEach(({ name, el }) => el.classList.toggle('ag-tab-panel--hidden', name !== targetName));
+            settings.stage = targetName.toLowerCase().replace(/\s+/g, '_');
+        };
+    };
 }

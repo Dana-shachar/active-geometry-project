@@ -1,5 +1,5 @@
 import { settings } from './uiSettings.js';
-import { addShape, getActiveShape, setBooleanOp, selectedShapeIds } from './shapeManager.js';
+import { addShape, getActiveShape, setBooleanOp, selectedShapeIds, shapeList } from './shapeManager.js';
 import { pushSnapshot } from './history.js';
 
 // ============================================================
@@ -29,6 +29,8 @@ let lastSelectionSize      = 0;
 let localControlsContainer = null;
 let lastRenderedShapeId    = -1;
 let lastRenderedShapeType  = null;
+let boolButtonsEl          = null;
+let boolButtonImgs         = {};   // op → <img> element
 
 // ============================================================
 // MATH EXPRESSION PARSER
@@ -414,9 +416,9 @@ function injectStyles() {
             align-items: center;
             justify-content: center;
         }
-        .ag-bool-btn:hover,
-        .ag-bool-btn.ag-active { background: var(--btn-icon-active-bg); }
-        .ag-bool-btn:disabled { opacity: var(--btn-disabled-bg-opacity); cursor: default; }
+        .ag-bool-btn:hover { background: var(--btn-icon-active-bg); }
+        .ag-bool-btn.ag-bool-active { background: var(--btn-icon-active-bg); }
+        .ag-bool-btn:disabled { opacity: var(--btn-disabled-bg-opacity); cursor: default; pointer-events: none; }
 
         /* ── Shell toggle ── */
         .ag-shell-toggle-row {
@@ -1069,28 +1071,34 @@ function buildRightPanel(rightOuter) {
 
     // ---- BOOLEANS ----
     const boolSection = section('Booleans');
-    const boolButtons = document.createElement('div');
-    boolButtons.className = 'ag-bool-buttons';
+    boolButtonsEl = document.createElement('div');
+    boolButtonsEl.className = 'ag-bool-buttons';
+    boolButtonImgs = {};
     [
-        { op: 'union',     label: 'Union',     icon: '∪' },
-        { op: 'subtract',  label: 'Subtract',  icon: '∖' },
-        { op: 'intersect', label: 'Intersect', icon: '∩' },
-        { op: 'exclude',   label: 'Exclude',   icon: '⊻' },
-    ].forEach(({ op, label, icon }) => {
+        { op: 'union',     label: 'Union'     },
+        { op: 'subtract',  label: 'Subtract'  },
+        { op: 'intersect', label: 'Intersect' },
+        { op: 'exclude',   label: 'Exclude'   },
+    ].forEach(({ op, label }) => {
         const btn = document.createElement('button');
         btn.className = 'ag-bool-btn';
-        btn.textContent = icon;
         btn.title = label;
+        btn.dataset.boolOp = op;
+        const img = document.createElement('img');
+        img.src = `/assets/icons/no-bg/${op}.svg`;
+        img.width = 24;
+        img.height = 24;
+        img.alt = label;
+        btn.appendChild(img);
+        boolButtonImgs[op] = img;
         btn.addEventListener('click', () => {
             const shape = getActiveShape();
             if (!shape) return;
             setBooleanOp(shape, op);
-            boolButtons.querySelectorAll('.ag-bool-btn').forEach(b => b.classList.remove('ag-active'));
-            btn.classList.add('ag-active');
         });
-        boolButtons.appendChild(btn);
+        boolButtonsEl.appendChild(btn);
     });
-    boolSection.appendChild(boolButtons);
+    boolSection.appendChild(boolButtonsEl);
     shapeControlsWrapper.appendChild(boolSection);
     shapeControlsWrapper.appendChild(divider());
 
@@ -1248,6 +1256,20 @@ export function updatePanels() {
         if (shape && document.activeElement !== shellThicknessField) {
             shellThicknessField.value = Number(shape.shellThickness).toFixed(2);
         }
+    }
+
+    // Sync boolean buttons — all yellow by default, Dis only when disabled,
+    // background highlight on the current op
+    if (boolButtonsEl) {
+        const currentOp   = shape?.booleanOp ?? 'union';
+        const singleShape = shapeList.length <= 1;
+        boolButtonsEl.querySelectorAll('.ag-bool-btn').forEach(btn => {
+            const btnOp     = btn.dataset.boolOp;
+            const isDisabled = singleShape;
+            boolButtonImgs[btnOp].src = `/assets/icons/no-bg/${isDisabled ? btnOp + 'Dis' : btnOp}.svg`;
+            btn.disabled = isDisabled;
+            btn.classList.toggle('ag-bool-active', !!shape && btnOp === currentOp);
+        });
     }
 
     if (shape) {

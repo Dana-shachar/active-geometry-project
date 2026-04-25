@@ -67,12 +67,12 @@ void main() {
     vec3 currentPosition = rayOrigin + rayDirection * totalDistance;    // Current position along the ray
     float distToSurface  = map(currentPosition);                        // Distance to the closest surface
     minLnDist = min(minLnDist, distToSurface);                          // Track closest approach
-    // Clip selected-shape SDF against the combined scene SDF so the outline only
-    // appears on the *visible* surface — not inside boolean carve-outs, where mapSelected()
-    // would be negative even though the combined map() is positive (empty space).
-    float selDist        = max(mapSelected(currentPosition), distToSurface);
-    if (selDist < minLnDistSelected) {
-        minLnDistSelected = selDist;
+    // For non-union selected shapes (subtract/intersect/exclude), track abs(SDF) so the
+    // outline follows the shape's full geometry even where it's hidden inside the solid.
+    // For union shapes, clip against the scene SDF to avoid outlines in boolean carve-outs.
+    float selectDist = max(mapSelected(currentPosition), distToSurface);
+    if (selectDist < minLnDistSelected) {
+        minLnDistSelected = selectDist;
         outlineRayDist    = totalDistance;                              // Depth at closest approach to selection
     }
     totalDistance += distToSurface;                                     // "March" forward by that distance
@@ -178,6 +178,27 @@ void main() {
       // Fade grid out with distance so it doesn't clutter the far background
       float gridFade    = clamp(1.0 - gridFloorT / 400.0, 0.0, 1.0);
       pixelColor        = vec3(gridIntensity * gridFade);
+    }
+  }
+
+  // Non-union selected shape: second march on mapSelected only (ignores booleans)
+  // to draw a clean ghost outline wherever the cut shape exists in space.
+  if (uSelectedIsNonUnion == 1) {
+    float ghostMarchDist   = 0.0;
+    float ghostMinApproach = 1e10;
+    float ghostMinRayDist  = 0.0;
+    bool  ghostConverged   = false;
+    for (int i = 0; i < 64; i++) {
+      vec3  ghostPos = rayOrigin + rayDirection * ghostMarchDist;
+      float ghostSdf = mapSelected(ghostPos);
+      if (ghostSdf < ghostMinApproach) { ghostMinApproach = ghostSdf; ghostMinRayDist = ghostMarchDist; }
+      if (ghostSdf < 0.001) { ghostConverged = true; break; }
+      if (ghostMarchDist > 10000.0) break;
+      ghostMarchDist += ghostSdf;
+    }
+    // Near-miss silhouette: ray just barely missed the ghost shape (same threshold as union outline)
+    if (!ghostConverged && ghostMinApproach < 0.002 * ghostMinRayDist) {
+      pixelColor = vec3(0.898, 0.757, 0.122);
     }
   }
 

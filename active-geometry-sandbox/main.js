@@ -180,7 +180,9 @@ function animate(time) {
     material.uniforms.uClipPos.value      = settings.clipPos;
     material.uniforms.uTime.value         = time * 0.001;
     settings.uIsSelected = selectedShapeIds.size > 0 ? 1 : 0;
-    material.uniforms.uIsSelected.value   = settings.uIsSelected;
+    material.uniforms.uIsSelected.value          = settings.uIsSelected;
+    const activeShape = getActiveShape();
+    material.uniforms.uSelectedIsNonUnion.value  = (activeShape && activeShape.booleanOp !== 'union') ? 1 : 0;
     material.uniforms.uFocalLen.value     = 1.0 / Math.tan((camera.fov / 2) * Math.PI / 180);
 
     // Sync all shape params + rotation matrices to GPU (loops over shapeList)

@@ -72,15 +72,15 @@ export function buildShaderBlock(shapeList) {
             `    }`,
         );
 
-        // Per-shape block inside mapIndex() — only union shapes are clickable/selectable
-        if (shapeList[shapeIndex].booleanOp === 'union') {
-            mapIndexLines.push(
-                `    {`,
-                ...sdfCall,
-                `        if (dist < bestDist) { bestDist = dist; bestIndex = ${shapeIndex + 1}; }`,
-                `    }`,
-            );
-        }
+        // All shapes are pickable. abs(dist) picks the shape whose surface is geometrically
+        // closest to the hit point — correctly handles subtract shapes whose SDF is negative
+        // inside the base solid (negative would always win with a plain < comparison).
+        mapIndexLines.push(
+            `    {`,
+            ...sdfCall,
+            `        if (abs(dist) < abs(bestDist)) { bestDist = dist; bestIndex = ${shapeIndex + 1}; }`,
+            `    }`,
+        );
     }
 
     mapBodyLines.push('    return result;', '}');
@@ -103,6 +103,7 @@ export function buildShaderBlock(shapeList) {
 export function buildUniforms(shapeList) {
     const uniforms = {
         uIsSelected:           { value: 0 },
+        uSelectedIsNonUnion:   { value: 0 },
         uActiveShapePosOffset: { value: new THREE.Vector3() },
         uClipAxis:             { value: 0 },
         uClipPos:              { value: 0 },
@@ -157,8 +158,7 @@ export function syncShapeUniforms(shapeList, materialUniforms, activeShapeIndex,
         materialUniforms[`${prefix}StepHeight`].value      = shape.stepHeight;
         materialUniforms[`${prefix}Turns`].value           = shape.turns;
         materialUniforms[`${prefix}LockProportions`].value = shape.lockProportions ? 1 : 0;
-        // Non-union shapes are invisible in the viewport — suppress their outline too
-        materialUniforms[`${prefix}IsSelected`].value      = (selectedShapeIds?.has(shape.id) && shape.booleanOp === 'union') ? 1 : 0;
+        materialUniforms[`${prefix}IsSelected`].value      = selectedShapeIds?.has(shape.id) ? 1 : 0;
         materialUniforms[`${prefix}ShellEnabled`].value    = shape.shellEnabled  ? 1 : 0;
         materialUniforms[`${prefix}ShellThickness`].value  = shape.shellThickness;
 

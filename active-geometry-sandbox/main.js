@@ -11,8 +11,9 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { Gumball } from './js/gumball.js';
 import { TransformHandles } from './js/transformHandles.js';
 import { buildShaderBlock, buildUniforms, syncShapeUniforms } from './js/shapeBuilder.js';
-import { addShape, shapeList, activeShapeIndex, shapeListVersion, getActiveShape, setActiveShape, selectShape, toggleShapeSelection, selectedShapeIds, removeShape } from './js/shapeManager.js';
+import { addShape, shapeList, activeShapeIndex, shapeListVersion, getActiveShape, setActiveShape, selectShape, toggleShapeSelection, selectedShapeIds, removeShape, keyObjId } from './js/shapeManager.js';
 import { pushSnapshot, undo, redo } from './js/history.js';
+import { handleKeyObjClick } from './js/alignDistribute.js';
 
 //==========================================================
 // CORE ENGINE SETUP
@@ -186,7 +187,7 @@ function animate(time) {
     material.uniforms.uFocalLen.value     = 1.0 / Math.tan((camera.fov / 2) * Math.PI / 180);
 
     // Sync all shape params + rotation matrices to GPU (loops over shapeList)
-    syncShapeUniforms(shapeList, material.uniforms, activeShapeIndex, _rotMat4, selectedShapeIds);
+    syncShapeUniforms(shapeList, material.uniforms, activeShapeIndex, _rotMat4, selectedShapeIds, keyObjId);
 
     // Sync zoom level to reflect scroll/orbit changes (updatePanels reads this to refresh the slider)
     const currentDistance = camera.position.distanceTo(cameraControls.target);
@@ -220,25 +221,40 @@ window.addEventListener('resize', () => {
 // CLICK SELECTION
 //==========================================================
 
-// Click event on the canvas: handle clicks take priority, then shape selection.
-// Shift+click adds/removes from multi-selection; plain click selects exactly one shape.
+// ==========================================================
+// CLICK SELECTION
+// Transform handle clicks take priority. Then:
+//
+//   Shift + click shape       → add/remove from multi-selection
+//   Plain click already-selected shape (2+ selected) → set as key object
+//   Plain click any other shape   → single-select (clears selection + key object)
+//   Plain click empty space       → deselect all (clears selection + key object)
+// ==========================================================
 renderer.domElement.addEventListener('click', (event) => {
     if (transformHandles.handleClick()) return;
     const hitIndex = pickShape(event.clientX, event.clientY);
+
+    // Shift+click — toggle shape in/out of multi-selection
     if (hitIndex >= 0 && event.shiftKey) {
         const hitId = shapeList[hitIndex].id;
         toggleShapeSelection(hitId);
         if (selectedShapeIds.has(hitId)) {
-            // Shape was added to selection — make it the active shape
             setActiveShape(hitIndex);
         } else {
-            // Shape was removed — fall back to another selected shape, or clear
+            // Shape removed — fall back to another selected shape, or clear
             const fallbackIndex = shapeList.findIndex(s => selectedShapeIds.has(s.id));
             setActiveShape(fallbackIndex);
         }
+
+    // Plain click on an already-selected shape in a multi-selection — mark as key object
+    } else if (handleKeyObjClick(hitIndex, shapeList, selectedShapeIds)) {
+        // key object set — nothing else needed
+
+    // Plain click — single-select (also clears key object via selectShape)
     } else {
         selectShape(hitIndex);
     }
+
     settings.uIsSelected = selectedShapeIds.size > 0 ? 1 : 0;
     material.uniforms.uIsSelected.value = settings.uIsSelected;
 });

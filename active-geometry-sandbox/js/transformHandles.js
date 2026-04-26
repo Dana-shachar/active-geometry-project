@@ -340,6 +340,7 @@ export class TransformHandles {
 
     _onCanvasMousedown(mouseEvent) {
         if (mouseEvent.button !== 0) return;
+        if (mouseEvent.altKey) return; // alt+drag = duplicate shape, not handle drag
         const validTypes = ['arrow', 'ring', 'cube', 'center'];
         if (!validTypes.includes(this._hoveredType) || this._hoveredKey === null) return;
 

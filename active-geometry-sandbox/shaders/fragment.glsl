@@ -59,6 +59,8 @@ void main() {
   float minLnDist         = 1e10;   // Closest the ray came to any surface
   float minLnDistSelected = 1e10;   // Closest the ray came to a selected shape (for outline)
   float outlineRayDist    = 0.0;    // Ray distance when minLnDistSelected was set — used for threshold
+  float keyObjLn          = 1e10;   // Closest the ray came to the key object (for thick outline)
+  float keyObjRayDist     = 0.0;    // Ray distance when keyObjLn was set — used for threshold
 
   // ===================================================
   // The Marching Ray Loop
@@ -74,6 +76,12 @@ void main() {
     if (selectDist < minLnDistSelected) {
         minLnDistSelected = selectDist;
         outlineRayDist    = totalDistance;                              // Depth at closest approach to selection
+    }
+    // Key object outline tracking — same pattern as selection outline, doubled threshold
+    float keyObjDist = max(mapKeyObj(currentPosition), distToSurface);
+    if (keyObjDist < keyObjLn) {
+        keyObjLn        = keyObjDist;
+        keyObjRayDist   = totalDistance;
     }
     totalDistance += distToSurface;                                     // "March" forward by that distance
 
@@ -134,35 +142,46 @@ void main() {
     }
   }
 
+  // ── 1. Surface hit ──────────────────────────────────────────
   if (totalDistance < 10000.0) {
     vec3 pointOnSurface = rayOrigin + rayDirection * totalDistance;
     vec3 surfaceNormal  = getSurfaceNormal(pointOnSurface);
     // Two-sided normals: flip if the normal points away from the camera (boolean cut surfaces)
     if (dot(surfaceNormal, -rayDirection) < 0.0) surfaceNormal = -surfaceNormal;
     pixelColor = calculateLighting(pointOnSurface, surfaceNormal);
+
+  // ── 2. Clip plane — inner surface through the cut opening ───
   } else if (wasClipped && innerHitDistance < 10000.0) {
-    // Inner surface found through the cut opening — render it normally.
     vec3 innerSurfacePos    = rayOrigin + rayDirection * (clipCrossT + innerHitDistance);
     vec3 innerSurfaceNormal = getSurfaceNormal(innerSurfacePos);
     if (dot(innerSurfaceNormal, -rayDirection) < 0.0) innerSurfaceNormal = -innerSurfaceNormal;
     pixelColor = calculateLighting(innerSurfacePos, innerSurfaceNormal);
+
+  // ── 3. Clip plane — cross-section face ──────────────────────
+  // Clip-plane intersection landed inside solid geometry → draw a lit cut face.
   } else if (wasClipped && clipCrossT > 0.0 && map(rayOrigin + rayDirection * clipCrossT) < 0.0) {
-    // Cross-section face: the clip-plane intersection is inside solid geometry — draw a lit cut face.
     vec3 clipFacePos    = rayOrigin + rayDirection * clipCrossT;
     vec3 clipFaceNormal = (uClipAxis == 1) ? vec3(-sign(rayDirection.x), 0.0, 0.0)
                         : (uClipAxis == 2) ? vec3(0.0, -sign(rayDirection.y), 0.0)
                         :                   vec3(0.0, 0.0, -sign(rayDirection.z));
     pixelColor = calculateLighting(clipFacePos, clipFaceNormal);
+
+  // ── 4. Key object outline (thick) ───────────────────────────
+  // Checked before the regular outline — same color, doubled threshold → visibly thicker border.
+  } else if (!wasClipped && keyObjLn < 0.004 * keyObjRayDist) {
+    pixelColor = vec3(0.898, 0.757, 0.122);  // #E5C11F
+
+  // ── 5. Selection outline ────────────────────────────────────
   } else if (!wasClipped && minLnDistSelected < 0.002 * outlineRayDist) {
-    pixelColor = vec3(0.898, 0.757, 0.122);  // #E5C11F — accent yellow selection outline
+    pixelColor = vec3(0.898, 0.757, 0.122);  // #E5C11F
+
+  // ── 6. Grid floor ────────────────────────────────────────────
   } else if (abs(rayDirection.y) > 0.0001) {
-    // Grid floor at y=0 — intersect ray with the XZ plane
     float gridFloorT = -rayOrigin.y / rayDirection.y;
     if (gridFloorT > 0.0) {
       vec2 gridCoord = (rayOrigin + rayDirection * gridFloorT).xz;
 
-      // fwidth measures how fast gridCoord changes per pixel — keeps lines 1px wide
-      // regardless of zoom level or perspective foreshortening
+      // fwidth keeps grid lines 1px wide regardless of zoom or perspective foreshortening
       vec2 minorDeriv = fwidth(gridCoord / 10.0);
       vec2 minorGrid  = abs(fract(gridCoord / 10.0 - 0.5) - 0.5) / minorDeriv;
       float minorLine = 1.0 - min(min(minorGrid.x, minorGrid.y), 1.0);
@@ -174,15 +193,14 @@ void main() {
       majorLine *= clamp(1.0 - max(majorDeriv.x, majorDeriv.y) * 2.0, 0.0, 1.0);
 
       float gridIntensity = clamp(minorLine * 0.2 + majorLine * 0.3, 0.0, 0.3);
-
-      // Fade grid out with distance so it doesn't clutter the far background
-      float gridFade    = clamp(1.0 - gridFloorT / 400.0, 0.0, 1.0);
-      pixelColor        = vec3(gridIntensity * gridFade);
+      float gridFade      = clamp(1.0 - gridFloorT / 400.0, 0.0, 1.0);  // fade with distance
+      pixelColor          = vec3(gridIntensity * gridFade);
     }
   }
 
-  // Non-union selected shape: second march on mapSelected only (ignores booleans)
-  // to draw a clean ghost outline wherever the cut shape exists in space.
+  // ── 7. Ghost outline — non-union selected shape ──────────────
+  // Second march on mapSelected only (ignores booleans) so subtract/intersect shapes
+  // show a clean outline even where they're hidden inside the scene solid.
   if (uSelectedIsNonUnion == 1) {
     float ghostMarchDist   = 0.0;
     float ghostMinApproach = 1e10;
@@ -196,9 +214,8 @@ void main() {
       if (ghostMarchDist > 10000.0) break;
       ghostMarchDist += ghostSdf;
     }
-    // Near-miss silhouette: ray just barely missed the ghost shape (same threshold as union outline)
     if (!ghostConverged && ghostMinApproach < 0.002 * ghostMinRayDist) {
-      pixelColor = vec3(0.898, 0.757, 0.122);
+      pixelColor = vec3(0.898, 0.757, 0.122);  // #E5C11F
     }
   }
 

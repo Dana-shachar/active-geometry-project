@@ -21,6 +21,9 @@ export function buildShaderBlock(shapeList) {
     const uniformLines = [];
     const mapBodyLines      = ['float map(vec3 worldPos) {',         '    float result = 1e10;'];
     const mapSelectedLines  = ['float mapSelected(vec3 worldPos) {', '    float result = 1e10;'];
+    // mapKeyObj evaluates the SDF of only the key object shape (the align/distribute reference).
+    // Same pattern as mapSelected but keyed on IsKeyObj. Returns 1e10 if no key object is set.
+    const mapKeyObjLines    = ['float mapKeyObj(vec3 worldPos) {',   '    float result = 1e10;'];
     // mapIndex returns the 1-based list index of the union shape whose SDF is closest at worldPos.
     // Used by the picking pass to identify which shape owns a hit pixel.
     const mapIndexLines     = ['int mapIndex(vec3 worldPos) {', '    int bestIndex = 0;', '    float bestDist = 1e10;'];
@@ -45,6 +48,7 @@ export function buildShaderBlock(shapeList) {
             `uniform float ${prefix}Turns;`,
             `uniform int   ${prefix}LockProportions;`,
             `uniform int   ${prefix}IsSelected;`,
+            `uniform int   ${prefix}IsKeyObj;`,
             `uniform int   ${prefix}ShellEnabled;`,
             `uniform float ${prefix}ShellThickness;`,
         );
@@ -72,6 +76,14 @@ export function buildShaderBlock(shapeList) {
             `    }`,
         );
 
+        // Per-shape block inside mapKeyObj() — evaluates only the key object shape
+        mapKeyObjLines.push(
+            `    if (${prefix}IsKeyObj == 1) {`,
+            ...sdfCall,
+            `        result = min(result, dist);`,
+            `    }`,
+        );
+
         // All shapes are pickable. abs(dist) picks the shape whose surface is geometrically
         // closest to the hit point — correctly handles subtract shapes whose SDF is negative
         // inside the base solid (negative would always win with a plain < comparison).
@@ -85,11 +97,13 @@ export function buildShaderBlock(shapeList) {
 
     mapBodyLines.push('    return result;', '}');
     mapSelectedLines.push('    return result;', '}');
+    mapKeyObjLines.push('    return result;', '}');
     mapIndexLines.push('    return bestIndex;', '}');
 
     return uniformLines.join('\n') + '\n\n'
          + mapBodyLines.join('\n')     + '\n\n'
          + mapSelectedLines.join('\n') + '\n\n'
+         + mapKeyObjLines.join('\n')   + '\n\n'
          + mapIndexLines.join('\n')    + '\n';
 }
 
@@ -128,6 +142,7 @@ export function buildUniforms(shapeList) {
         uniforms[`${prefix}Turns`]           = { value: shape.turns };
         uniforms[`${prefix}LockProportions`] = { value: shape.lockProportions ? 1 : 0 };
         uniforms[`${prefix}IsSelected`]      = { value: 0 };
+        uniforms[`${prefix}IsKeyObj`]        = { value: 0 };
         uniforms[`${prefix}ShellEnabled`]    = { value: shape.shellEnabled  ? 1 : 0 };
         uniforms[`${prefix}ShellThickness`]  = { value: shape.shellThickness };
     }
@@ -140,7 +155,7 @@ export function buildUniforms(shapeList) {
 // Called every frame from main.js animate() to push current
 // shape param values to the GPU. Does NOT recompile the shader.
 // ==========================================================
-export function syncShapeUniforms(shapeList, materialUniforms, activeShapeIndex, _rotMat4, selectedShapeIds) {
+export function syncShapeUniforms(shapeList, materialUniforms, activeShapeIndex, _rotMat4, selectedShapeIds, keyObjId) {
     for (let shapeIndex = 0; shapeIndex < shapeList.length; shapeIndex++) {
         const shape  = shapeList[shapeIndex];
         const prefix = `uShape${shapeIndex}`;
@@ -159,6 +174,7 @@ export function syncShapeUniforms(shapeList, materialUniforms, activeShapeIndex,
         materialUniforms[`${prefix}Turns`].value           = shape.turns;
         materialUniforms[`${prefix}LockProportions`].value = shape.lockProportions ? 1 : 0;
         materialUniforms[`${prefix}IsSelected`].value      = selectedShapeIds?.has(shape.id) ? 1 : 0;
+        materialUniforms[`${prefix}IsKeyObj`].value        = (keyObjId !== null && shape.id === keyObjId) ? 1 : 0;
         materialUniforms[`${prefix}ShellEnabled`].value    = shape.shellEnabled  ? 1 : 0;
         materialUniforms[`${prefix}ShellThickness`].value  = shape.shellThickness;
 

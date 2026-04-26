@@ -55,6 +55,13 @@ export let activeShapeIndex = -1;
 // Set of shape ids in the current multi-selection (Shift+click).
 export const selectedShapeIds = new Set();
 
+// ----------------------------------------------------------
+// Key Object — align/distribute reference shape
+// Plain click on an already-selected shape (2+ selected) marks it as the key object.
+// All other shapes align or distribute relative to it. null if none set.
+// ----------------------------------------------------------
+export let keyObjId = null;
+
 // Increments whenever the list structure changes (shape added or removed).
 // main.js watches this to know when to recompile the shader.
 export let shapeListVersion = 0;
@@ -85,6 +92,7 @@ export function removeShape(id) {
 
     shapeList.splice(removalIndex, 1);
     selectedShapeIds.delete(id);
+    if (keyObjId === id) keyObjId = null;
     shapeListVersion++;
 
     if (shapeList.length === 0) {
@@ -108,19 +116,53 @@ export function toggleShapeSelection(id) {
     }
 }
 
-// Select exactly one shape by index (plain click). Clears any prior selection.
+// Select exactly one shape by index (plain click). Clears any prior selection and key object.
 export function selectShape(index) {
     selectedShapeIds.clear();
+    keyObjId = null;
     activeShapeIndex = index;
     if (index >= 0 && index < shapeList.length) {
         selectedShapeIds.add(shapeList[index].id);
     }
 }
 
-// Deselect everything and clear active shape.
+// Deselect everything and clear active shape and key object.
 export function clearSelection() {
     selectedShapeIds.clear();
+    keyObjId = null;
     activeShapeIndex = -1;
+}
+
+// ----------------------------------------------------------
+// Key Object mutations
+// ----------------------------------------------------------
+
+// Mark a shape as the key object. It stays in the selection — only its role changes.
+// Cleared automatically on single-select, deselect-all, or if the shape is removed.
+export function setKeyObj(id) {
+    keyObjId = id;
+}
+
+// ----------------------------------------------------------
+// Duplicate — Alt+drag
+// Creates a copy of the given shape with identical params.
+// The copy is added to the end of shapeList and made active.
+// Caller is responsible for pushSnapshot() before calling.
+// ----------------------------------------------------------
+export function duplicateShape(source) {
+    // Spread copies all primitives automatically. Only Vector3/Euler need explicit cloning.
+    const copy = {
+        ...source,
+        id:        nextShapeId++,
+        posOffset: source.posOffset.clone(),
+        rotation:  source.rotation.clone(),
+    };
+    shapeList.push(copy);
+    activeShapeIndex = shapeList.length - 1;
+    selectedShapeIds.clear();
+    selectedShapeIds.add(copy.id);
+    shapeListVersion++;
+    return copy;
 }
 
 // Sets the boolean op on a shape and increments shapeListVersion to trigger a shader recompile.

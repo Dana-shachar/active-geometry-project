@@ -114,17 +114,14 @@ export function alignShapes(selectedShapes, plane, iconOp, keyObjId) {
 }
 
 // ----------------------------------------------------------
-// Distribution
+// Distribution core — no snapshot push, called by both exports below.
 // axis:      'X' | 'Y' | 'Z'
 // spacingMm: null   → auto — evenly distribute between the two extremes
 //                    (extremes stay fixed, middles move)
 //            number → exact gap in mm around key object
 //                    (key object stays pinned, all others stack outward)
 // ----------------------------------------------------------
-export function distributeShapes(selectedShapes, axis, spacingMm, keyObjId) {
-    if (selectedShapes.length < 2) return;
-    pushSnapshot();
-
+function distributeCore(selectedShapes, axis, spacingMm, keyObjId) {
     const axisLow = axis.toLowerCase();
     const minKey  = 'min' + axis;
     const maxKey  = 'max' + axis;
@@ -160,7 +157,7 @@ export function distributeShapes(selectedShapes, axis, spacingMm, keyObjId) {
         // Shapes to the LEFT — stack outward from key object's min edge
         let cursor = keyMinPos;
         for (let i = keyIdx - 1; i >= 0; i--) {
-            const size = sorted[i].b[maxKey] - sorted[i].b[minKey];
+            const size   = sorted[i].b[maxKey] - sorted[i].b[minKey];
             const newMax = cursor - spacingMm;
             sorted[i].shape.posOffset[axisLow] = newMax - size / 2;
             cursor = newMax - size;
@@ -169,10 +166,23 @@ export function distributeShapes(selectedShapes, axis, spacingMm, keyObjId) {
         // Shapes to the RIGHT — stack outward from key object's max edge
         cursor = keyMaxPos;
         for (let i = keyIdx + 1; i < sorted.length; i++) {
-            const size = sorted[i].b[maxKey] - sorted[i].b[minKey];
+            const size   = sorted[i].b[maxKey] - sorted[i].b[minKey];
             const newMin = cursor + spacingMm;
             sorted[i].shape.posOffset[axisLow] = newMin + size / 2;
             cursor = newMin + size;
         }
     }
+}
+
+// Pushes undo snapshot then distributes — use for button clicks.
+export function distributeShapes(selectedShapes, axis, spacingMm, keyObjId) {
+    if (selectedShapes.length < 2) return;
+    pushSnapshot();
+    distributeCore(selectedShapes, axis, spacingMm, keyObjId);
+}
+
+// No snapshot — use for live scrubber updates (scrubber handles its own snapshot).
+export function distributeShapesLive(selectedShapes, axis, spacingMm, keyObjId) {
+    if (selectedShapes.length < 2) return;
+    distributeCore(selectedShapes, axis, spacingMm, keyObjId);
 }

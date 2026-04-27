@@ -1,6 +1,7 @@
 import { settings } from './uiSettings.js';
-import { addShape, getActiveShape, setBooleanOp, selectedShapeIds, shapeList } from './shapeManager.js';
+import { addShape, getActiveShape, setBooleanOp, selectedShapeIds, shapeList, keyObjId } from './shapeManager.js';
 import { pushSnapshot } from './history.js';
+import { alignShapes, distributeShapes, distributeShapesLive } from './alignDistribute.js';
 
 // ============================================================
 // CONFIG
@@ -22,6 +23,7 @@ let rotInputs              = {};
 let scaleInputs            = {};
 let shellTogglePill        = null;
 let shellThicknessField    = null;
+let shellFormGridEl        = null;
 let shellClipContainer     = null;
 let shapeControlsEl        = null;
 let activateTab            = null;   // fn(tabName) — programmatically switches tabs
@@ -30,7 +32,21 @@ let localControlsContainer = null;
 let lastRenderedShapeId    = -1;
 let lastRenderedShapeType  = null;
 let boolButtonsEl          = null;
-let boolButtonImgs         = {};   // op → <img> element
+let boolIcons              = {};   // op → <img> element
+
+// ----------------------------------------------------------
+// Alignment / Position section
+// ----------------------------------------------------------
+let alignCtrlsEl   = null;   // alignment + distribute sub-container — hidden when < 2 shapes selected
+let alignIcons     = [];     // <img> elements for the 6 alignment icon buttons
+let distAxisSelectEl = null; // <select> for the distribution axis
+let distAxisSel      = 'X'; // currently active distribution axis
+let alignBtnsRowEl   = null; // row of 6 alignment icon buttons — disabled when < 2 shapes
+let distributeFormEl = null; // distribute axis + spacing form — disabled when < 2 shapes
+let spacingInput   = null;
+let filletSectionEl         = null;  // fillet section — hidden for unsupported shapes
+let filletTrailingDividerEl = null;  // divider after fillet, shown/hidden with filletSectionEl
+let filletField             = null;  // corner radius input
 
 // ============================================================
 // MATH EXPRESSION PARSER
@@ -419,6 +435,9 @@ function injectStyles() {
         .ag-bool-btn:hover { background: var(--btn-icon-active-bg); }
         .ag-bool-btn.ag-bool-active { background: var(--btn-icon-active-bg); }
         .ag-bool-btn:disabled { opacity: var(--btn-disabled-bg-opacity); cursor: default; pointer-events: none; }
+        .ag-text-bool-btn { width: auto; padding: 0 var(--text-input-gap); }
+        .ag-shell-form > input,
+        .ag-shell-form > select:not(.ag-compact-select) { width: 100%; min-width: 0; }
 
         /* ── Shell toggle ── */
         .ag-shell-toggle-row {
@@ -486,10 +505,6 @@ function injectStyles() {
             text-align: center;
         }
         .ag-shell-thickness-field:focus { outline: none; border-color: var(--input-focus-stroke); }
-        .ag-shell-thickness-field:disabled {
-            opacity: var(--btn-disabled-text-opacity);
-            cursor: default;
-        }
         .ag-tab-panel {
             display: flex;
             flex-direction: column;
@@ -546,6 +561,7 @@ function injectStyles() {
         }
         .ag-compact-select {
             width: fit-content;
+            justify-self: start;
             background: var(--dropdown-bg);
             border: var(--input-stroke-weight) solid var(--input-stroke);
             border-radius: 2px;
@@ -659,12 +675,8 @@ function localControls(shape, container) {
         addRow('Radius (mm)',       numInput(() => shape.width, v => { shape.width = v; if (shape.lockProportions) shape.height = v; }, 0.1, 0.2, 1));
         addRow('Lock proportions',  checkbox(() => shape.lockProportions, v => { shape.lockProportions = v; }));
     }
-    if (shape.type === 'box') {
-        addRow('Corner radius (mm)', numInput(() => shape.cornerRadius, v => { shape.cornerRadius = v; }, 0, 0.1, 1));
-    }
     if (shape.type === 'cylinder') {
-        addRow('Cap ends',           checkbox(() => shape.caps,         v => { shape.caps = v; }));
-        addRow('Corner radius (mm)', numInput(() => shape.cornerRadius, v => { shape.cornerRadius = v; }, 0, 0.1, 1));
+        addRow('Cap ends', checkbox(() => shape.caps, v => { shape.caps = v; }));
     }
     if (shape.type === 'prism') {
         const sidesInput = document.createElement('input');
@@ -974,48 +986,128 @@ function buildRightPanel(rightOuter) {
     const shapePanel = document.createElement('div');
     shapePanel.className = 'ag-tab-panel ag-tab-panel--hidden';
 
-    // ---- ALIGNMENT (placeholder) ----
-    const alignSection = section('Alignment');
-    const alignRow = document.createElement('div');
-    alignRow.className = 'ag-local-row';
-    const alignLabel = document.createElement('label');
-    alignLabel.textContent = 'Alignment to plane';
-    const axisSelect = document.createElement('select');
-    axisSelect.className = 'ag-compact-select';
-    ['XY', 'XZ', 'YZ'].forEach(axis => {
-        const opt = document.createElement('option');
-        opt.value = axis; opt.textContent = axis;
-        axisSelect.appendChild(opt);
-    });
-    alignRow.appendChild(alignLabel);
-    alignRow.appendChild(axisSelect);
-    alignSection.appendChild(alignRow);
-    const alignBtns = document.createElement('div');
-    alignBtns.className = 'ag-bool-buttons';
-    for (let i = 0; i < 6; i++) {
-        const btn = document.createElement('button');
-        btn.className = 'ag-bool-btn';
-        btn.textContent = '⊟';
-        btn.title = 'Alignment (coming soon)';
-        btn.disabled = true;
-        alignBtns.appendChild(btn);
-    }
-    alignSection.appendChild(alignBtns);
-    shapePanel.appendChild(alignSection);
-    shapePanel.appendChild(divider());
-
-    // ---- SHAPE LOCAL CONTROLS ----
     // ---- SHAPE CONTROLS WRAPPER (greyed out when nothing selected) ----
     const shapeControlsWrapper = document.createElement('div');
     shapeControlsWrapper.className = 'ag-shape-controls-wrapper';
     shapeControlsEl = shapeControlsWrapper;
 
-    const localSection = section(null);
+    // ---- ALIGNMENT / POSITION ----
+    const alignPositionSection = section('Alignment / Position');
+    const localCtrlSection = alignPositionSection; // alias — alignment controls are appended below
+
+    // ── Alignment: plane picker + 6 icon buttons
+    const alignForm = document.createElement('div');
+    alignForm.className = 'ag-shell-form';
+    const alignPlaneLabel = document.createElement('label');
+    alignPlaneLabel.textContent = 'Alignment on plane';
+    const alignPlaneSelect = document.createElement('select');
+    alignPlaneSelect.className = 'ag-compact-select';
+    ['XY', 'XZ', 'YZ'].forEach(plane => {
+        const opt = document.createElement('option');
+        opt.value = plane; opt.textContent = plane;
+        alignPlaneSelect.appendChild(opt);
+    });
+    alignForm.appendChild(alignPlaneLabel);
+    alignForm.appendChild(alignPlaneSelect);
+    localCtrlSection.appendChild(alignForm);
+
+    const alignBtnsRow = document.createElement('div');
+    alignBtnsRow.className = 'ag-bool-buttons';
+    alignBtnsRowEl = alignBtnsRow;
+    alignIcons = [];
+    [
+        { op: 'left',    icon: 'alignLeft',        title: 'Align left'              },
+        { op: 'hcenter', icon: 'horizontalCenter', title: 'Align horizontal center' },
+        { op: 'right',   icon: 'alignRight',       title: 'Align right'             },
+        { op: 'top',     icon: 'alignTop',         title: 'Align top'               },
+        { op: 'vcenter', icon: 'verticalCenter',   title: 'Align vertical center'   },
+        { op: 'bottom',  icon: 'alignBottom',      title: 'Align bottom'            },
+    ].forEach(({ op, icon, title }) => {
+        const btn = document.createElement('button');
+        btn.className = 'ag-bool-btn';
+        btn.title = title;
+        const img = document.createElement('img');
+        img.src = `/assets/icons/no-bg/${icon}.svg`;
+        img.width = 24; img.height = 24; img.alt = title;
+        btn.appendChild(img);
+        btn.addEventListener('click', () => {
+            const shapes = shapeList.filter(s => selectedShapeIds.has(s.id));
+            alignShapes(shapes, alignPlaneSelect.value, op, keyObjId);
+        });
+        alignBtnsRow.appendChild(btn);
+        alignIcons.push(img);
+    });
+    localCtrlSection.appendChild(alignBtnsRow);
+
+    // ── Distribution: axis selector + spacing input
+    const distributeForm = document.createElement('div');
+    distributeForm.className = 'ag-shell-form';
+    distributeFormEl = distributeForm;
+    const distAxisLabel = document.createElement('label');
+    distAxisLabel.textContent = 'Distribute to axis';
+    distAxisSelectEl = document.createElement('select');
+    distAxisSelectEl.className = 'ag-compact-select';
+    ['X', 'Y', 'Z'].forEach(axis => {
+        const opt = document.createElement('option');
+        opt.value = axis; opt.textContent = axis;
+        distAxisSelectEl.appendChild(opt);
+    });
+    distAxisSelectEl.addEventListener('change', () => {
+        distAxisSel = distAxisSelectEl.value;
+        const spacingMm = keyObjId !== null ? (evalMath(spacingInput.value) ?? null) : null;
+        const shapes = shapeList.filter(s => selectedShapeIds.has(s.id));
+        distributeShapes(shapes, distAxisSel, spacingMm, keyObjId);
+    });
+    distributeForm.appendChild(distAxisLabel);
+    distributeForm.appendChild(distAxisSelectEl);
+    const spacingLabel = document.createElement('label');
+    spacingLabel.textContent = 'Spacing (mm)';
+    spacingInput = document.createElement('input');
+    spacingInput.type = 'text';
+    spacingInput.className = 'ag-shell-thickness-field';
+    spacingInput.placeholder = 'Auto';
+    spacingInput.readOnly = true;
+    const commitSpacing = () => {
+        if (keyObjId === null) return;
+        const shapes = shapeList.filter(s => selectedShapeIds.has(s.id));
+        distributeShapes(shapes, distAxisSel, evalMath(spacingInput.value) ?? null, keyObjId);
+    };
+    spacingInput.addEventListener('keydown', e => {
+        if (e.key === 'Enter') { commitSpacing(); spacingInput.blur(); }
+        if (e.key === 'Escape') spacingInput.blur();
+    });
+    spacingInput.addEventListener('blur', commitSpacing);
+    makeScrubber(
+        spacingInput,
+        () => parseFloat(spacingInput.value) || 0,
+        v => {
+            if (keyObjId === null || selectedShapeIds.size < 2) return;
+            const mm = Math.max(0, v);
+            spacingInput.value = mm.toFixed(2);
+            const shapes = shapeList.filter(s => selectedShapeIds.has(s.id));
+            distributeShapesLive(shapes, distAxisSel, mm, keyObjId);
+        },
+        0, 0.5, 1
+    );
+    distributeForm.appendChild(spacingLabel);
+    distributeForm.appendChild(spacingInput);
+
+    // Wrap alignment + distribute in a sub-container that hides when < 2 shapes selected
+    alignCtrlsEl = document.createElement('div');
+    alignCtrlsEl.className = 'ag-panel-section';
+    alignCtrlsEl.style.display = 'none';
+    alignCtrlsEl.appendChild(alignForm);
+    alignCtrlsEl.appendChild(alignBtnsRow);
+    alignCtrlsEl.appendChild(distributeForm);
+    alignPositionSection.appendChild(alignCtrlsEl);
+
+    // Shape-specific params always visible below alignment controls
     localControlsContainer = document.createElement('div');
     localControlsContainer.className = 'ag-panel-section';
-    localSection.appendChild(localControlsContainer);
     localControls(getActiveShape(), localControlsContainer);
-    shapeControlsWrapper.appendChild(localSection);
+    alignPositionSection.appendChild(localControlsContainer);
+
+    shapeControlsWrapper.appendChild(alignPositionSection);
     shapeControlsWrapper.appendChild(divider());
 
     // ---- TRANSFORM ----
@@ -1069,11 +1161,46 @@ function buildRightPanel(rightOuter) {
     shapeControlsWrapper.appendChild(transformSection);
     shapeControlsWrapper.appendChild(divider());
 
+    // ---- FILLET (box and cylinder only — wrapper hidden for unsupported shapes) ----
+    filletSectionEl = document.createElement('div');
+    filletSectionEl.style.cssText = 'display:none; flex-direction:column; gap:var(--section-gap)';
+    const filletSection = section('Fillet');
+    const filletForm = document.createElement('div');
+    filletForm.className = 'ag-shell-form';
+    const filletLabel = document.createElement('label');
+    filletLabel.textContent = 'Corner radius (mm)';
+    filletField = document.createElement('input');
+    filletField.type = 'text';
+    filletField.className = 'ag-shell-thickness-field';
+    const commitFillet = () => {
+        const shape = getActiveShape();
+        if (!shape) return;
+        const val = evalMath(filletField.value);
+        if (val !== null && val >= 0) { pushSnapshot(); shape.cornerRadius = val; }
+        filletField.value = Number(shape.cornerRadius).toFixed(2);
+    };
+    filletField.addEventListener('blur', commitFillet);
+    filletField.addEventListener('keydown', e => {
+        if (e.key === 'Enter') { commitFillet(); filletField.blur(); }
+        if (e.key === 'Escape') filletField.blur();
+    });
+    makeScrubber(filletField, () => getActiveShape()?.cornerRadius ?? 0, v => { const s = getActiveShape(); if (s) s.cornerRadius = Math.max(0, v); }, 0, 0.1, 1);
+    filletForm.appendChild(filletLabel);
+    filletForm.appendChild(filletField);
+    filletSection.appendChild(filletForm);
+    filletSectionEl.appendChild(filletSection);
+    shapeControlsWrapper.appendChild(filletSectionEl);
+
+    // Trailing divider after Fillet — shown/hidden together with filletSectionEl
+    filletTrailingDividerEl = divider();
+    filletTrailingDividerEl.style.display = 'none';
+    shapeControlsWrapper.appendChild(filletTrailingDividerEl);
+
     // ---- BOOLEANS ----
     const boolSection = section('Booleans');
     boolButtonsEl = document.createElement('div');
     boolButtonsEl.className = 'ag-bool-buttons';
-    boolButtonImgs = {};
+    boolIcons = {};
     [
         { op: 'union',     label: 'Union'     },
         { op: 'subtract',  label: 'Subtract'  },
@@ -1090,7 +1217,7 @@ function buildRightPanel(rightOuter) {
         img.height = 24;
         img.alt = label;
         btn.appendChild(img);
-        boolButtonImgs[op] = img;
+        boolIcons[op] = img;
         btn.addEventListener('click', () => {
             const shape = getActiveShape();
             if (!shape) return;
@@ -1129,20 +1256,19 @@ function buildRightPanel(rightOuter) {
         pushSnapshot();
         shape.shellEnabled = !shape.shellEnabled;
         shellTogglePill.classList.toggle('ag-active', shape.shellEnabled);
-        shellThicknessField.disabled = !shape.shellEnabled;
         if (shellClipContainer) shellClipContainer.style.display = shape.shellEnabled ? 'contents' : 'none';
     });
     shellSection.appendChild(shellToggleRow);
 
     const shellFormGrid = document.createElement('div');
     shellFormGrid.className = 'ag-shell-form';
+    shellFormGridEl = shellFormGrid;
 
     const shellThicknessLabel = document.createElement('label');
     shellThicknessLabel.textContent = 'Wall thickness (mm)';
     shellThicknessField = document.createElement('input');
     shellThicknessField.type = 'text';
     shellThicknessField.className = 'ag-shell-thickness-field';
-    shellThicknessField.disabled = true;
     const commitThickness = () => {
         const shape = getActiveShape();
         if (!shape) return;
@@ -1251,11 +1377,36 @@ export function updatePanels() {
     if (shellTogglePill && shellThicknessField && shapeControlsEl) {
         shapeControlsEl.classList.toggle('ag-shell-section-disabled', selectedShapeIds.size === 0);
         shellTogglePill.classList.toggle('ag-active', !!shape?.shellEnabled);
-        shellThicknessField.disabled = !shape?.shellEnabled;
+        if (shellFormGridEl) shellFormGridEl.classList.toggle('ag-shell-section-disabled', !shape?.shellEnabled);
         if (shellClipContainer) shellClipContainer.style.display = shape?.shellEnabled ? 'contents' : 'none';
         if (shape && document.activeElement !== shellThicknessField) {
             shellThicknessField.value = Number(shape.shellThickness).toFixed(2);
         }
+    }
+
+    // ── Alignment controls: show when 1+ shapes selected; disable when < 2
+    if (alignCtrlsEl) {
+        const hasSelection = selectedShapeIds.size >= 1;
+        const canAlign     = selectedShapeIds.size >= 2;
+        alignCtrlsEl.style.display = hasSelection ? '' : 'none';
+        if (alignBtnsRowEl)   alignBtnsRowEl.classList.toggle('ag-shell-section-disabled', !canAlign);
+        if (distributeFormEl) distributeFormEl.classList.toggle('ag-shell-section-disabled', !canAlign);
+    }
+    // ── Spacing input: disabled when < 2 shapes; readOnly (Auto) when no key object
+    if (spacingInput && document.activeElement !== spacingInput) {
+        const canDistribute = selectedShapeIds.size >= 2;
+        const hasKeyObj     = keyObjId !== null;
+        spacingInput.disabled    = !canDistribute;
+        spacingInput.readOnly    = canDistribute && !hasKeyObj;
+        spacingInput.placeholder = (canDistribute && !hasKeyObj) ? 'Auto' : '';
+        if (!canDistribute || !hasKeyObj) spacingInput.value = '';
+    }
+    // ── Fillet: show only for box and cylinder
+    if (filletSectionEl && filletField && document.activeElement !== filletField) {
+        const showFillet = shape?.type === 'box' || shape?.type === 'cylinder';
+        filletSectionEl.style.display = showFillet ? 'flex' : 'none';
+        if (filletTrailingDividerEl) filletTrailingDividerEl.style.display = showFillet ? '' : 'none';
+        if (showFillet) filletField.value = Number(shape.cornerRadius).toFixed(2);
     }
 
     // Sync boolean buttons — all yellow by default, Dis only when disabled,
@@ -1266,7 +1417,7 @@ export function updatePanels() {
         boolButtonsEl.querySelectorAll('.ag-bool-btn').forEach(btn => {
             const btnOp     = btn.dataset.boolOp;
             const isDisabled = singleShape;
-            boolButtonImgs[btnOp].src = `/assets/icons/no-bg/${isDisabled ? btnOp + 'Dis' : btnOp}.svg`;
+            boolIcons[btnOp].src = `/assets/icons/no-bg/${isDisabled ? btnOp + 'Dis' : btnOp}.svg`;
             btn.disabled = isDisabled;
             btn.classList.toggle('ag-bool-active', !!shape && btnOp === currentOp);
         });

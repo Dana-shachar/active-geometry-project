@@ -1251,12 +1251,13 @@ function buildRightPanel(rightOuter) {
     shellToggleRow.appendChild(shellFrame);
     shellToggleRow.appendChild(shellLabel);
     shellToggleRow.addEventListener('click', () => {
-        const shape = getActiveShape();
-        if (!shape) return;
+        const selectedShapes = shapeList.filter(s => selectedShapeIds.has(s.id));
+        if (selectedShapes.length === 0) return;
         pushSnapshot();
-        shape.shellEnabled = !shape.shellEnabled;
-        shellTogglePill.classList.toggle('ag-active', shape.shellEnabled);
-        if (shellClipContainer) shellClipContainer.style.display = shape.shellEnabled ? 'contents' : 'none';
+        const newShellState = !selectedShapes[0].shellEnabled;
+        selectedShapes.forEach(s => { s.shellEnabled = newShellState; });
+        shellTogglePill.classList.toggle('ag-active', newShellState);
+        if (shellClipContainer) shellClipContainer.style.display = newShellState ? 'contents' : 'none';
     });
     shellSection.appendChild(shellToggleRow);
 
@@ -1270,18 +1271,24 @@ function buildRightPanel(rightOuter) {
     shellThicknessField.type = 'text';
     shellThicknessField.className = 'ag-shell-thickness-field';
     const commitThickness = () => {
-        const shape = getActiveShape();
-        if (!shape) return;
+        const selectedShapes = shapeList.filter(s => selectedShapeIds.has(s.id));
+        if (selectedShapes.length === 0) return;
         const val = evalMath(shellThicknessField.value);
-        if (val !== null && val > 0) { pushSnapshot(); shape.shellThickness = val; }
-        shellThicknessField.value = Number(shape?.shellThickness ?? 1).toFixed(2);
+        if (val !== null && val > 0) {
+            pushSnapshot();
+            selectedShapes.forEach(s => { s.shellThickness = val; });
+        }
+        shellThicknessField.value = Number(selectedShapes[0].shellThickness ?? 1).toFixed(2);
     };
     shellThicknessField.addEventListener('blur', commitThickness);
     shellThicknessField.addEventListener('keydown', e => {
         if (e.key === 'Enter') { commitThickness(); shellThicknessField.blur(); }
         if (e.key === 'Escape') shellThicknessField.blur();
     });
-    makeScrubber(shellThicknessField, () => getActiveShape()?.shellThickness ?? 1, v => { const s = getActiveShape(); if (s) s.shellThickness = Math.max(0.1, v); }, 0.1, 0.1, 0.5);
+    makeScrubber(shellThicknessField, () => getActiveShape()?.shellThickness ?? 1, v => {
+        const mm = Math.max(0.1, v);
+        shapeList.filter(s => selectedShapeIds.has(s.id)).forEach(s => { s.shellThickness = mm; });
+    }, 0.1, 0.1, 0.5);
     shellFormGrid.appendChild(shellThicknessLabel);
     shellFormGrid.appendChild(shellThicknessField);
     shellSection.appendChild(shellFormGrid);

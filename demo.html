@@ -1,0 +1,1383 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PHASE</title>
+<style>
+/* ── Fonts (same files as real app) ── */
+@font-face {
+    font-family: 'Helvetica';
+    src: url('active-geometry-sandbox/assets/font/HelveticaLTStd-Light.ttf') format('truetype');
+    font-weight: 300;
+}
+@font-face {
+    font-family: 'Helvetica';
+    src: url('active-geometry-sandbox/assets/font/HelveticaLTStd-Roman.ttf') format('truetype');
+    font-weight: 400;
+}
+@font-face {
+    font-family: 'Helvetica';
+    src: url('active-geometry-sandbox/assets/font/HelveticaLTStd-Bold.ttf') format('truetype');
+    font-weight: 700;
+}
+
+/* ── Design tokens — exact match to real app ── */
+:root {
+    --bg-canvas:                  #0C0C0D;
+    --bg-panel:                   #49494A;
+    --bg-tab-inactive:            #3A3A3B;
+    --btn-default-bg:             #5B5B5B;
+    --btn-hover-bg:               #757575;
+    --btn-stroke:                 #8C8C8C;
+    --btn-stroke-weight:          0.75px;
+    --btn-icon-bg:                #39393C;
+    --btn-icon-active-bg:         #4A4A4D;
+    --btn-padding:                4px;
+    --btn-radius:                 4px;
+    --btn-disabled-bg-opacity:    0.30;
+    --btn-disabled-text-opacity:  0.40;
+    --dropdown-bg:                rgba(91, 91, 91, 0.80);
+    --input-fill:                 rgba(242, 242, 247, 0.15);
+    --input-stroke:               #F2F2F7;
+    --input-stroke-weight:        0.25px;
+    --input-focus-stroke:         var(--accent-primary);
+    --divider-stroke:             rgba(255, 255, 255, 0.20);
+    --divider-weight:             0.5px;
+    --error-fill:                 rgba(179, 38, 30, 0.80);
+    --error-stroke:               #F9DEDC;
+    --error-text:                 #F9DEDC;
+    --accent-primary:             #E5C11F;
+    --text-primary:               #FFFFFF;
+    --font:                       'Helvetica', sans-serif;
+    --panel-padding:              8px;
+    --panel-radius:               4px;
+    --right-panel-padding:        16px;
+    --right-panel-width:          360px;
+    --left-panel-width:           200px;
+    --section-gap:                12px;
+    --item-gap:                   12px;
+    --text-input-gap:             8px;
+    --tab-height:                 32px;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: var(--bg-canvas); font-family: var(--font); color: var(--text-primary); width: 100vw; height: 100vh; overflow: hidden; }
+
+/* ═══════════════════════════════════
+   LEFT PANEL
+   ═══════════════════════════════════ */
+#left-panel {
+    position: fixed; top: 0; left: 0;
+    width: var(--left-panel-width); height: calc(100vh - 360px);
+    background: var(--bg-panel); z-index: 50;
+    display: flex; flex-direction: column;
+    overflow-y: auto;
+    scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.15) transparent;
+}
+.lp-header { padding: 10px 12px 8px; font: 700 12px var(--font); color: var(--text-primary); flex-shrink: 0; border-bottom: var(--divider-weight) solid var(--divider-stroke); }
+
+.acc-trigger { display: flex; align-items: center; justify-content: space-between; width: 100%; padding: 8px 12px; background: transparent; border: none; border-bottom: var(--divider-weight) solid var(--divider-stroke); color: var(--text-primary); font: 400 12px var(--font); cursor: pointer; text-align: left; }
+.acc-trigger:hover { background: rgba(255,255,255,0.04); }
+.acc-chevron { opacity: 0.4; font-size: 9px; transition: transform 0.15s; display: inline-block; }
+.acc-trigger.open .acc-chevron { transform: rotate(90deg); }
+.acc-body { overflow: hidden; }
+.acc-body.collapsed { display: none; }
+.acc-cards { display: flex; flex-direction: column; gap: 4px; padding: 6px 8px; }
+.cell-card { display: flex; align-items: center; gap: 8px; padding: 6px 8px; background: var(--btn-icon-bg); border-radius: var(--btn-radius); border: 1px solid transparent; cursor: pointer; transition: background 0.1s, border-color 0.1s; }
+.cell-card:hover { background: var(--btn-icon-active-bg); }
+.cell-card.selected { border-color: var(--accent-primary); background: var(--btn-icon-active-bg); }
+.cell-icon { width: 34px; height: 34px; flex-shrink: 0; background: rgba(0,0,0,0.3); border-radius: 2px; display: flex; align-items: center; justify-content: center; }
+.cell-label { font: 300 11px var(--font); color: var(--text-primary); line-height: 1.3; }
+
+/* ═══════════════════════════════════
+   CENTER CANVAS
+   ═══════════════════════════════════ */
+#canvas-area {
+    position: fixed; top: 0;
+    left: var(--left-panel-width);
+    right: var(--right-panel-width);
+    bottom: 0;
+    display: flex; align-items: center; justify-content: center;
+}
+
+/* LLM floating card */
+#llm-card {
+    position: absolute; top: 20px; right: 16px;
+    width: 268px;
+    background: color-mix(in srgb, var(--bg-panel) 90%, transparent);
+    border: 1px solid var(--accent-primary);
+    border-radius: 6px; padding: 12px;
+    display: none; z-index: 60;
+}
+#llm-card.visible { display: block; }
+.llm-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.llm-title { font: 700 10px var(--font); color: var(--accent-primary); text-transform: uppercase; letter-spacing: 0.06em; }
+.llm-subtitle { font: 300 10px var(--font); color: var(--text-primary); opacity: 0.45; margin-left: 6px; }
+.llm-close { background: none; border: none; color: var(--text-primary); opacity: 0.4; cursor: pointer; font: 300 18px var(--font); line-height: 1; padding: 0 2px; }
+.llm-close:hover { opacity: 1; }
+.llm-body { font: 300 11px var(--font); color: var(--text-primary); opacity: 0.85; line-height: 1.65; }
+
+/* ═══════════════════════════════════
+   RIGHT PANEL
+   ═══════════════════════════════════ */
+#right-panel {
+    position: fixed; top: 0; right: 0;
+    width: var(--right-panel-width); height: 100vh;
+    background: var(--bg-panel); z-index: 50;
+    display: flex; flex-direction: column;
+}
+.ag-right-content { padding: var(--right-panel-padding); display: flex; flex-direction: column; flex: 1; overflow-y: auto; scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.15) transparent; }
+
+.ag-stage-tabs { display: flex; flex-shrink: 0; width: 100%; }
+.ag-stage-tab { flex: 1; height: var(--tab-height); padding: 0 8px; display: flex; align-items: center; justify-content: center; font: 400 13px var(--font); color: var(--text-primary); opacity: 0.4; background: var(--bg-tab-inactive); cursor: pointer; border: none; white-space: nowrap; }
+.ag-stage-tab:hover { opacity: 0.7; }
+.ag-stage-tab.ag-active { background: var(--bg-panel); opacity: 1; }
+
+.ag-tab-panel { display: flex; flex-direction: column; gap: var(--section-gap); }
+.ag-tab-panel--hidden { visibility: hidden; height: 0; overflow: hidden; }
+
+.ag-section-title { font: 700 12px var(--font); color: var(--text-primary); }
+.ag-section-divider { width: 100%; min-height: 1px; height: var(--divider-weight); background: var(--divider-stroke); flex-shrink: 0; }
+.ag-panel-section { display: flex; flex-direction: column; gap: var(--item-gap); }
+
+.ag-form-grid { display: grid; grid-template-columns: max-content 1fr; column-gap: var(--text-input-gap); row-gap: var(--item-gap); align-items: center; }
+.ag-form-grid label { font: 300 12px var(--font); color: var(--text-primary); white-space: nowrap; }
+.ag-form-value { font: 300 12px var(--font); color: var(--text-primary); opacity: 0.6; }
+
+.ag-input { background: var(--input-fill); border: var(--input-stroke-weight) solid var(--input-stroke); border-radius: 2px; color: var(--text-primary); font: 300 12px var(--font); line-height: 0.9; padding: 6px 4px 4px; text-align: center; width: 100%; }
+.ag-input:focus { outline: none; border-color: var(--input-focus-stroke); }
+.ag-select { background: var(--dropdown-bg); border: var(--input-stroke-weight) solid var(--input-stroke); border-radius: 2px; color: var(--text-primary); font: 300 12px var(--font); padding: 6px 6px 4px; width: 100%; }
+.ag-select:focus { outline: none; border-color: var(--input-focus-stroke); }
+
+.ag-action-btn { padding: 8px 10px 6px; background: var(--btn-default-bg); border: var(--btn-stroke-weight) solid var(--btn-stroke); border-radius: var(--btn-radius); color: var(--text-primary); font: 300 12px var(--font); line-height: 0.9; cursor: pointer; }
+.ag-action-btn:hover { background: var(--btn-hover-bg); }
+.ag-action-btn:disabled { opacity: var(--btn-disabled-bg-opacity); cursor: default; }
+
+.ag-icon-btn { width: 32px; height: 32px; padding: 4px; background: var(--btn-icon-bg); border: var(--btn-stroke-weight) solid transparent; border-radius: var(--btn-radius); cursor: pointer; display: flex; align-items: center; justify-content: center; }
+.ag-icon-btn img { width: 100%; height: 100%; display: block; }
+.ag-icon-btn:hover { background: var(--btn-hover-bg); }
+.ag-icon-btn.ag-active { background: var(--btn-icon-active-bg); border-color: var(--accent-primary); }
+.ag-btn-row { display: flex; gap: 6px; flex-wrap: wrap; }
+
+.ag-slider-row { display: flex; align-items: center; gap: var(--text-input-gap); }
+.ag-slider-label { font: 300 12px var(--font); color: var(--text-primary); flex-shrink: 0; min-width: 96px; }
+.ag-slider-value { font: 300 12px var(--font); color: var(--text-primary); opacity: 0.6; flex-shrink: 0; min-width: 36px; text-align: right; }
+input[type=range].ag-slider { -webkit-appearance: none; appearance: none; flex: 1; height: 2px; background: var(--btn-default-bg); border-radius: 1px; cursor: pointer; outline: none; }
+input[type=range].ag-slider::-webkit-slider-thumb { -webkit-appearance: none; width: 8px; height: 8px; border-radius: 50%; background: var(--text-primary); cursor: pointer; }
+input[type=range].ag-slider::-moz-range-thumb { width: 8px; height: 8px; border-radius: 50%; background: var(--text-primary); border: none; cursor: pointer; }
+
+.ag-kv-row { display: flex; justify-content: space-between; align-items: center; gap: var(--item-gap); }
+.ag-kv-key  { font: 300 12px var(--font); color: var(--text-primary); opacity: 0.55; }
+.ag-kv-value { font: 300 12px var(--font); color: var(--text-primary); }
+
+/* ── Gumball — vertical column, matches real app ── */
+#gumball {
+    position: fixed;
+    bottom: 16px; left: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    z-index: 40;
+    user-select: none;
+}
+.gb-zoom-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.gb-zoom-label { font: 700 12px var(--font); color: var(--text-primary); white-space: nowrap; }
+input[type=range].gb-slider {
+    -webkit-appearance: none; appearance: none;
+    width: 80px; height: 2px;
+    background: var(--btn-default-bg); border-radius: 1px; cursor: pointer; outline: none;
+}
+input[type=range].gb-slider::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 8px; height: 8px;
+    border-radius: 50%; background: var(--text-primary); cursor: pointer;
+}
+.gb-view-btn {
+    padding: 8px 8px 4px;
+    background: var(--bg-canvas);
+    border: var(--btn-stroke-weight) solid var(--btn-stroke);
+    border-radius: var(--btn-radius);
+    color: var(--text-primary);
+    font: 400 10px var(--font);
+    line-height: 0.9;
+    cursor: pointer;
+    white-space: nowrap;
+    text-align: left;
+}
+.gb-view-btn:hover { background: #1A1A1A; }
+.gb-view-btn.gb-active { background: #1A1A1A; color: var(--text-primary); }
+.gb-axis-svg { pointer-events: none; margin-top: 8px; }
+
+/* ── Print Validation button — prominent ── */
+#analyze-btn {
+    width: 100%;
+    padding: 10px 12px 8px;
+    background: rgba(229, 193, 31, 0.08);
+    border: 1px solid var(--accent-primary);
+    border-radius: var(--btn-radius);
+    color: var(--text-primary);
+    font: 400 13px var(--font);
+    line-height: 0.9;
+    cursor: pointer;
+    letter-spacing: 0.02em;
+    transition: background 0.12s;
+}
+#analyze-btn:hover { background: rgba(229, 193, 31, 0.16); }
+
+/* ── Research Validation section ── */
+#rv-input-wrap { position: relative; }
+#rv-input {
+    width: 100%; box-sizing: border-box;
+    height: 72px; resize: none;
+    background: var(--input-fill);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: var(--btn-radius);
+    color: var(--text-primary);
+    font: 300 11px var(--font);
+    padding: 8px 10px;
+    line-height: 1.55;
+    outline: none;
+    transition: border-color 0.12s;
+}
+#rv-input:focus { border-color: var(--accent-primary); }
+#rv-input::placeholder { color: rgba(255,255,255,0.28); }
+#rv-suggestions {
+    display: none;
+    position: absolute; top: calc(100% + 4px); left: 0; right: 0;
+    background: var(--bg-panel);
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: var(--btn-radius);
+    z-index: 80; overflow: hidden;
+}
+#rv-suggestions.visible { display: block; }
+.rv-suggestion {
+    padding: 8px 10px;
+    font: 300 11px var(--font);
+    color: rgba(255,255,255,0.65);
+    cursor: pointer;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+    transition: background 0.1s, color 0.1s;
+}
+.rv-suggestion:last-child { border-bottom: none; }
+.rv-suggestion:hover { background: rgba(255,255,255,0.07); color: var(--text-primary); }
+#rv-send-btn {
+    display: block; margin-top: 6px; margin-left: auto;
+}
+#rv-response {
+    display: none;
+    margin-top: 10px;
+    padding: 10px;
+    background: rgba(0,0,0,0.25);
+    border-radius: var(--btn-radius);
+    font: 300 11px var(--font);
+    color: var(--text-primary);
+    opacity: 0.85;
+    line-height: 1.65;
+}
+#rv-response a { color: var(--accent-primary); text-decoration: underline; }
+#rv-response a:hover { opacity: 0.75; }
+#rv-response strong { display: block; color: var(--text-primary); font: 700 10px var(--font); text-transform: uppercase; letter-spacing: 0.08em; margin-top: 10px; margin-bottom: 3px; opacity: 1; }
+#rv-response strong:first-child { margin-top: 0; }
+
+/* ── FGM graph ── */
+#fgm-svg { width: 100%; height: auto; display: block; user-select: none; }
+.fgm-axis-label { font: 300 9px var(--font); fill: rgba(255,255,255,0.35); }
+.fgm-guide { stroke: rgba(255,255,255,0.14); stroke-width: 0.75; stroke-dasharray: 3 3; }
+
+/* ── Semantic evaluator ── */
+#evaluator-box { padding: 10px 12px; background: rgba(0,0,0,0.28); border: var(--divider-weight) solid var(--divider-stroke); border-radius: var(--btn-radius); font: 300 11px var(--font); color: var(--text-primary); line-height: 1.65; min-height: 52px; }
+
+/* ── DFM status row ── */
+.dfm-status-row { display: flex; align-items: flex-start; gap: 8px; }
+.dfm-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; margin-top: 2px; }
+.dfm-text { font: 300 11px var(--font); color: var(--text-primary); opacity: 0.85; line-height: 1.55; }
+
+/* ── Pin to Board ── */
+#pin-column { display: flex; flex-direction: column; gap: 8px; }
+.pin-section-label { font: 700 10px var(--font); color: var(--text-primary); opacity: 0.4; text-transform: uppercase; letter-spacing: 0.06em; }
+#pin-cards { display: flex; flex-direction: column; gap: 6px; }
+.pin-card { display: flex; align-items: center; gap: 8px; padding: 6px 8px; background: var(--btn-icon-bg); border-radius: var(--btn-radius); }
+.pin-thumb { width: 46px; height: 34px; flex-shrink: 0; background: var(--bg-canvas); border-radius: 2px; overflow: hidden; }
+.pin-meta { font: 300 10px var(--font); color: var(--text-primary); opacity: 0.55; line-height: 1.5; white-space: pre; }
+
+/* ── Export ── */
+#export-btn { display: flex; align-items: center; gap: 6px; padding: 8px 14px 6px; background: var(--btn-default-bg); border: var(--btn-stroke-weight) solid var(--btn-stroke); border-radius: var(--btn-radius); color: var(--text-primary); font: 300 12px var(--font); cursor: pointer; width: fit-content; transition: background 0.1s; }
+#export-btn:hover { background: var(--btn-hover-bg); }
+#export-btn:disabled { opacity: var(--btn-disabled-bg-opacity); cursor: default; }
+#export-spinner { width: 10px; height: 10px; border: 1.5px solid rgba(255,255,255,0.25); border-top-color: var(--text-primary); border-radius: 50%; animation: spin 0.65s linear infinite; display: none; }
+#export-spinner.visible { display: block; }
+@keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════════════════════
+     LEFT PANEL
+     ═══════════════════════════════════════════════════════════ -->
+<div id="left-panel">
+  <div class="lp-header">Template Library</div>
+
+  <div>
+    <button class="acc-trigger open" data-cat="auxetic">Auxetic <span class="acc-chevron">▶</span></button>
+    <div class="acc-body" id="acc-auxetic">
+      <div class="acc-cards">
+        <div class="cell-card" data-cell="bowtie">
+          <div class="cell-icon" id="icon-bowtie"></div>
+          <div class="cell-label">Bowtie Auxetic</div>
+        </div>
+        <div class="cell-card" data-cell="reentrant-hex">
+          <div class="cell-icon" id="icon-reentrant-hex"></div>
+          <div class="cell-label">Re-entrant Hex</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <button class="acc-trigger" data-cat="chiral">Chiral <span class="acc-chevron">▶</span></button>
+    <div class="acc-body collapsed" id="acc-chiral">
+      <div class="acc-cards">
+        <div class="cell-card" data-cell="chiral-node"><div class="cell-icon" id="icon-chiral-node"></div><div class="cell-label">Chiral Node</div></div>
+        <div class="cell-card" data-cell="anti-chiral"><div class="cell-icon" id="icon-anti-chiral"></div><div class="cell-label">Anti-chiral</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <button class="acc-trigger" data-cat="flexure">Flexure <span class="acc-chevron">▶</span></button>
+    <div class="acc-body collapsed" id="acc-flexure">
+      <div class="acc-cards">
+        <div class="cell-card" data-cell="meander"><div class="cell-icon" id="icon-meander"></div><div class="cell-label">Meander Spring</div></div>
+        <div class="cell-card" data-cell="flexure-beam"><div class="cell-icon" id="icon-flexure-beam"></div><div class="cell-label">Flexure Beam</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <button class="acc-trigger" data-cat="cellular">Cellular <span class="acc-chevron">▶</span></button>
+    <div class="acc-body collapsed" id="acc-cellular">
+      <div class="acc-cards">
+        <div class="cell-card" data-cell="honeycomb"><div class="cell-icon" id="icon-honeycomb"></div><div class="cell-label">Hex Honeycomb</div></div>
+        <div class="cell-card" data-cell="square-grid"><div class="cell-icon" id="icon-square-grid"></div><div class="cell-label">Square Grid</div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════
+     CENTER CANVAS
+     ═══════════════════════════════════════════════════════════ -->
+<div id="canvas-area">
+  <svg id="main-svg"></svg>
+
+  <!-- Gumball — vertical column matching real app -->
+  <div id="gumball">
+    <div class="gb-zoom-row">
+      <span class="gb-zoom-label">Zoom</span>
+      <input type="range" class="gb-slider" id="gb-zoom" min="10" max="400" value="100">
+    </div>
+    <button class="gb-view-btn gb-active" data-view="PERSPECTIVE">PERSPECTIVE</button>
+    <button class="gb-view-btn" data-view="TOP">TOP</button>
+    <button class="gb-view-btn" data-view="FRONT">FRONT</button>
+    <button class="gb-view-btn" data-view="SIDE">SIDE</button>
+    <button class="gb-view-btn" data-view="RESET">RESET VIEW</button>
+    <!-- Axis indicator — PERSPECTIVE orientation, matches real app colors -->
+    <svg class="gb-axis-svg" width="80" height="80" viewBox="0 0 80 80">
+      <line x1="40" y1="40" x2="60" y2="51" stroke="#ff4444" stroke-width="2" stroke-linecap="round"/>
+      <text x="66" y="55" font-size="11" fill="#ff4444" font-family="monospace" font-weight="bold" text-anchor="middle" dominant-baseline="central">X</text>
+      <line x1="40" y1="40" x2="40" y2="17" stroke="#44ff88" stroke-width="2" stroke-linecap="round"/>
+      <text x="40" y="10" font-size="11" fill="#44ff88" font-family="monospace" font-weight="bold" text-anchor="middle" dominant-baseline="central">Y</text>
+      <line x1="40" y1="40" x2="20" y2="51" stroke="#4488ff" stroke-width="2" stroke-linecap="round"/>
+      <text x="13" y="55" font-size="11" fill="#4488ff" font-family="monospace" font-weight="bold" text-anchor="middle" dominant-baseline="central">Z</text>
+    </svg>
+  </div>
+
+  <div id="llm-card">
+    <div class="llm-header">
+      <div style="display:flex;align-items:baseline;gap:0">
+        <span class="llm-title" id="llm-title-text">Context</span>
+        <span class="llm-subtitle" id="llm-subtitle-text"></span>
+      </div>
+      <button class="llm-close" id="llm-close">×</button>
+    </div>
+    <div class="llm-body" id="llm-text"></div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════
+     RIGHT PANEL
+     ═══════════════════════════════════════════════════════════ -->
+<div id="right-panel">
+  <div class="ag-stage-tabs">
+    <button class="ag-stage-tab" data-tab="scene">Scene</button>
+    <button class="ag-stage-tab ag-active" data-tab="shape">Shape</button>
+    <button class="ag-stage-tab" data-tab="evaluate">Evaluate</button>
+    <button class="ag-stage-tab" data-tab="export">Export &amp; Import</button>
+  </div>
+
+  <div class="ag-right-content">
+
+    <!-- SCENE -->
+    <div class="ag-tab-panel ag-tab-panel--hidden" id="tab-scene">
+      <div class="ag-panel-section">
+        <div class="ag-section-title">Display</div>
+        <div class="ag-form-grid">
+          <label>Clip axis</label>
+          <select class="ag-select"><option>Off</option><option>X</option><option>Y</option><option>Z</option></select>
+          <label>Guide plane</label>
+          <select class="ag-select"><option>Off</option><option>XY</option><option>XZ</option><option>YZ</option></select>
+        </div>
+      </div>
+    </div>
+
+    <!-- SHAPE -->
+    <div class="ag-tab-panel" id="tab-shape">
+
+      <div class="ag-panel-section">
+        <div class="ag-section-title">Cartesian Array</div>
+        <div class="ag-form-grid">
+          <label>Pattern</label>
+          <select class="ag-select"><option>Cartesian</option><option>Hexagonal</option><option>Radial</option></select>
+          <label>X count</label>
+          <input type="text" class="ag-input" id="x-count" value="3">
+          <label>Y count</label>
+          <input type="text" class="ag-input" id="y-count" value="5">
+        </div>
+        <button class="ag-action-btn" id="apply-array-btn">Apply Array</button>
+      </div>
+
+      <div class="ag-section-divider"></div>
+
+      <div class="ag-panel-section">
+        <div class="ag-section-title">FGM Modifier</div>
+        <div class="ag-form-grid">
+          <label>Map parameter</label>
+          <select class="ag-select"><option>Wall Thickness</option><option disabled>Cell Scale</option><option disabled>Strut Thickness</option></select>
+        </div>
+        <!-- FGM bezier graph — single draggable right endpoint (tip thickness) -->
+        <svg id="fgm-svg" viewBox="0 0 240 118">
+          <line x1="28" y1="8" x2="28" y2="92"  stroke="rgba(255,255,255,0.08)" stroke-width="0.5"/>
+          <line x1="28" y1="92" x2="232" y2="92" stroke="rgba(255,255,255,0.08)" stroke-width="0.5"/>
+          <line id="fgm-guide" class="fgm-guide"/>
+          <path id="fgm-curve" fill="none" stroke="var(--accent-primary)" stroke-width="1.5" stroke-linecap="round"/>
+          <!-- Base handle (left) — drag to set base thickness -->
+          <circle id="fgm-base-handle" cx="28" r="5.5" fill="var(--accent-primary)"/>
+          <circle id="fgm-base-hit"   cx="28" r="14"   fill="transparent" pointer-events="all" cursor="grab"/>
+          <!-- Mid handle — drag to shape the curve between base and tip -->
+          <circle id="fgm-mid-handle" cx="130" r="5" fill="rgba(229,193,31,0.5)" stroke="var(--accent-primary)" stroke-width="1.5"/>
+          <circle id="fgm-mid-hit"    cx="130" r="14" fill="transparent" pointer-events="all" cursor="grab"/>
+          <!-- Right endpoint — tip thickness, drag up/down to set gradient -->
+          <circle id="fgm-end-handle" r="5.5" fill="var(--accent-primary)"/>
+          <circle id="fgm-end-hit"    r="14" fill="transparent" pointer-events="all" cursor="grab"/>
+          <text x="130" y="108" text-anchor="middle" class="fgm-axis-label">Base → Tip</text>
+          <text x="10" y="50" text-anchor="middle" transform="rotate(-90 10 50)" class="fgm-axis-label">Thickness</text>
+          <line x1="28"  y1="92" x2="28"  y2="96" stroke="rgba(255,255,255,0.2)" stroke-width="0.5"/>
+          <line x1="232" y1="92" x2="232" y2="96" stroke="rgba(255,255,255,0.2)" stroke-width="0.5"/>
+        </svg>
+      </div>
+
+      <div class="ag-section-divider"></div>
+
+      <div class="ag-panel-section">
+        <div class="ag-section-title">Boolean</div>
+        <div class="ag-btn-row">
+          <button class="ag-icon-btn" title="Union"><img src="active-geometry-sandbox/assets/icons/no-bg/union.svg" alt="Union"></button>
+          <button class="ag-icon-btn" title="Subtract"><img src="active-geometry-sandbox/assets/icons/no-bg/subtract.svg" alt="Subtract"></button>
+          <button class="ag-icon-btn" title="Intersect"><img src="active-geometry-sandbox/assets/icons/no-bg/intersect.svg" alt="Intersect"></button>
+          <button class="ag-icon-btn" title="Exclude"><img src="active-geometry-sandbox/assets/icons/no-bg/exclude.svg" alt="Exclude"></button>
+        </div>
+      </div>
+
+      <div class="ag-section-divider"></div>
+
+      <div class="ag-panel-section">
+        <div class="ag-section-title">Align &amp; Distribute</div>
+        <div class="ag-btn-row">
+          <button class="ag-icon-btn" title="Align left"><img src="active-geometry-sandbox/assets/icons/no-bg/alignLeft.svg" alt="Align left"></button>
+          <button class="ag-icon-btn" title="Align center H"><img src="active-geometry-sandbox/assets/icons/no-bg/horizontalCenter.svg" alt="Center H"></button>
+          <button class="ag-icon-btn" title="Align right"><img src="active-geometry-sandbox/assets/icons/no-bg/alignRight.svg" alt="Align right"></button>
+          <button class="ag-icon-btn" title="Align bottom"><img src="active-geometry-sandbox/assets/icons/no-bg/alignBottom.svg" alt="Align bottom"></button>
+          <button class="ag-icon-btn" title="Align center V"><img src="active-geometry-sandbox/assets/icons/no-bg/verticalCenter.svg" alt="Center V"></button>
+          <button class="ag-icon-btn" title="Align top"><img src="active-geometry-sandbox/assets/icons/no-bg/alignTop.svg" alt="Align top"></button>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- EVALUATE -->
+    <div class="ag-tab-panel ag-tab-panel--hidden" id="tab-evaluate">
+
+      <div class="ag-panel-section">
+        <div class="ag-section-title">Wall Thickness</div>
+        <div class="ag-slider-row">
+          <span class="ag-slider-label">Thickness (mm)</span>
+          <input type="range" class="ag-slider" id="thickness-slider" min="0.1" max="2.0" step="0.01" value="0.9">
+          <span class="ag-slider-value" id="thickness-readout">0.9</span>
+        </div>
+      </div>
+
+      <div class="ag-section-divider"></div>
+
+      <!-- DFM — always live, updates with slider + FGM -->
+      <div class="ag-panel-section">
+        <div class="ag-section-title">DFM Check</div>
+        <div class="dfm-status-row">
+          <div class="dfm-dot" id="dfm-dot"></div>
+          <div class="dfm-text" id="dfm-text"></div>
+        </div>
+      </div>
+
+      <div class="ag-section-divider"></div>
+
+      <!-- Semantic evaluator — always live -->
+      <div class="ag-panel-section">
+        <div class="ag-section-title">Semantic Evaluator</div>
+        <div id="evaluator-box"></div>
+      </div>
+
+      <div class="ag-section-divider"></div>
+
+      <!-- Print Validation — DFM + printability analysis -->
+      <div class="ag-panel-section">
+        <button id="analyze-btn">Print Validation</button>
+      </div>
+
+      <div class="ag-section-divider"></div>
+
+      <!-- Research Validation — LLM chat -->
+      <div class="ag-panel-section">
+        <div class="ag-section-title">Research Validation</div>
+        <div id="rv-input-wrap">
+          <textarea id="rv-input" placeholder="Ask me anything about this topology..."></textarea>
+          <div id="rv-suggestions">
+            <div class="rv-suggestion" data-q="What can this shape be used for?">What can this shape be used for?</div>
+            <div class="rv-suggestion" data-q="What papers reference this topology?">What papers reference this topology?</div>
+            <div class="rv-suggestion" data-q="What are possible use cases?">What are possible use cases?</div>
+          </div>
+        </div>
+        <button class="ag-action-btn" id="rv-send-btn">Send</button>
+        <div id="rv-response"></div>
+      </div>
+
+      <div class="ag-section-divider"></div>
+
+      <div class="ag-panel-section">
+        <div class="ag-btn-row">
+          <button class="ag-action-btn" id="undo-btn">Undo</button>
+          <button class="ag-action-btn" id="pin-btn">Pin to Board</button>
+        </div>
+      </div>
+
+      <div class="ag-section-divider" id="pin-divider" style="display:none;"></div>
+      <div id="pin-column" style="display:none;">
+        <div class="pin-section-label">Pinned Snapshots</div>
+        <div id="pin-cards"></div>
+      </div>
+
+    </div>
+
+    <!-- EXPORT & IMPORT -->
+    <div class="ag-tab-panel ag-tab-panel--hidden" id="tab-export">
+      <div class="ag-panel-section">
+        <div class="ag-section-title">Export</div>
+        <div class="ag-form-grid">
+          <label>Format</label>
+          <select class="ag-select" id="format-select"><option>STL</option><option>OBJ</option><option>3MF</option><option>STEP</option></select>
+          <label>Est. file size</label>
+          <span class="ag-form-value" id="size-estimate">~2.4 MB</span>
+        </div>
+        <button id="export-btn"><div id="export-spinner"></div><span id="export-label">Export STL</span></button>
+      </div>
+      <div class="ag-section-divider"></div>
+      <div class="ag-panel-section">
+        <div class="ag-section-title">Import</div>
+        <button class="ag-action-btn">Upload File</button>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+'use strict';
+
+// ============================================================
+// GRID STATE
+// ============================================================
+let COLS  = 3;
+let ROWS  = 5;
+const CELL_W = 108;
+const CELL_H = 88;
+const PAD_X  = 16;
+const PAD_Y  = 16;
+const ISO_GRID_X = 14,  ISO_GRID_Y = -7;   // isometric depth offset for full grid cells
+const ISO_SOLO_X = 26,  ISO_SOLO_Y = -13;  // isometric depth offset for single cell view
+
+let wallThickness  = 0.9;  // always = fgmBaseMM after init
+let fgmBaseMM      = 0.9;  // base (left handle) thickness in mm
+let fgmTipMM       = 0.9;  // tip (right handle) thickness in mm
+let fgmMidSvgY     = 55;   // mid handle Y in SVG coords — sets bezier control point
+let showSingleCell = false;  // true = 1 large unit cell, false = full grid
+let cellElems      = [];    // { group, cx, cy, cellW, cellH, physRow, isoX, isoY }
+
+// ============================================================
+// DFM COLOR THRESHOLDS
+// green > 0.8mm | yellow 0.4–0.8 | orange 0.3–0.4 | red < 0.3
+// ============================================================
+const DFM = {
+    GREEN:  { min: 0.8,  color: '#4CAF50', label: 'good' },
+    YELLOW: { min: 0.4,  color: '#E5C11F', label: 'ok'   },
+    ORANGE: { min: 0.3,  color: '#FF8800', label: 'attention' },
+    RED:    { min: 0,    color: '#FF3333', label: 'unprintable' },
+};
+
+function dfmColor(effectiveTh) {
+    if (effectiveTh > DFM.GREEN.min)  return DFM.GREEN.color;
+    if (effectiveTh > DFM.YELLOW.min) return DFM.YELLOW.color;
+    if (effectiveTh >= DFM.ORANGE.min) return DFM.ORANGE.color;
+    return DFM.RED.color;
+}
+
+// SVG Y ↔ mm (FGM graph: top=thick 2.0mm, bottom=thin 0.1mm)
+function svgYtoMM(y) { return Math.max(0.01, 0.1 + (88 - y) / 78 * 1.9); }
+function mmToSvgY(mm) { return 88 - (mm - 0.1) / 1.9 * 78; }
+
+// wallFactor: linear interpolation from base to tip across physRows
+function wallFactor(physRow) {
+    if (ROWS <= 1 || fgmBaseMM <= 0) return 1.0;
+    const t   = physRow / (ROWS - 1);
+    const lY  = mmToSvgY(fgmBaseMM), rY = mmToSvgY(fgmTipMM);
+    // cpY derived so bezier passes through (midX, fgmMidSvgY) at t=0.5
+    const cpY = (8 * fgmMidSvgY - lY - rY) / 6;
+    const svgY = (1-t)**3*lY + 3*(1-t)**2*t*cpY + 3*(1-t)*t**2*cpY + t**3*rY;
+    return svgYtoMM(svgY) / fgmBaseMM;
+}
+
+function effectiveThickness(physRow) {
+    return wallThickness * wallFactor(physRow);
+}
+
+// ============================================================
+// BOWTIE GEOMETRY
+// ============================================================
+
+// Returns array of [x,y] pairs — used for 3D face construction
+function bowtiePtsList(cx, cy, w, h, wf) {
+    const pinch = 0.12 + (1 - wf) * 0.32;  // wf=1→0.12 (open), wf=0→0.44 (very pinched)
+    const hw = w / 2, hh = h / 2, wx = hw * pinch;
+    return [
+        [cx - hw, cy - hh], [cx + hw, cy - hh],
+        [cx + wx,  cy     ], [cx + hw, cy + hh],
+        [cx - hw, cy + hh], [cx - wx,  cy     ],
+    ];
+}
+
+// String form — used for mini pin thumbnails
+function bowtiePoints(cx, cy, w, h, wf) {
+    return bowtiePtsList(cx, cy, w, h, wf).map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(' ');
+}
+
+function cellStrokeWidth(wf) { return 0.8 + wf * 2.4; }
+
+// shapeWallFactor: combines FGM gradient + thickness slider → controls visual pinch
+// effectiveTh / 1.2mm = fully open; below 1.2mm the waist pinches proportionally
+function shapeWallFactor(physRow) {
+    const effTh = wallThickness * wallFactor(physRow);
+    return Math.min(effTh / 1.2, 1.0);
+}
+
+// unitCellWallFactor: unit cell preview responds only to mid handle, not base/tip endpoints
+// divisor 1.5mm = fully open, giving visible bidirectional response across the full slider range
+function unitCellWallFactor() {
+    return Math.min(svgYtoMM(fgmMidSvgY) / 1.5, 1.0);
+}
+
+// colorAlpha: converts a DFM hex color to rgba with given alpha
+function colorAlpha(hexColor, alpha) {
+    const map = {
+        '#4CAF50': [76, 175, 80],
+        '#E5C11F': [229, 193, 31],
+        '#FF8800': [255, 136, 0],
+        '#FF3333': [255, 51, 51],
+    };
+    const [r, g, b] = map[hexColor] || [229, 193, 31];
+    return `rgba(${r},${g},${b},${alpha})`;
+}
+
+// draw3DCell: fake isometric extrusion — back face, depth edges, shaded top/right faces, front face
+function draw3DCell(group, cx, cy, w, h, swf, color, strokeW, isoX, isoY) {
+    group.innerHTML = '';
+    const front = bowtiePtsList(cx, cy, w, h, swf);
+    const back  = front.map(([x, y]) => [x + isoX, y + isoY]);
+
+    function ptsPath(pts) {
+        return pts.map(([x, y], i) => `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`).join(' ') + ' Z';
+    }
+
+    // Back face — dim outline only
+    const backEl = svgEl('path');
+    backEl.setAttribute('d', ptsPath(back));
+    backEl.setAttribute('fill', 'none');
+    backEl.setAttribute('stroke', color);
+    backEl.setAttribute('stroke-opacity', '0.5');
+    backEl.setAttribute('stroke-width', (strokeW * 0.6).toFixed(1));
+    backEl.setAttribute('stroke-linejoin', 'round');
+    group.appendChild(backEl);
+
+    // Top shaded surface (top edge: front[0]→front[1] bridged to back)
+    const topEl = svgEl('polygon');
+    topEl.setAttribute('points', [front[0], front[1], back[1], back[0]].map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(' '));
+    topEl.setAttribute('fill', colorAlpha(color, 0.22));
+    topEl.setAttribute('stroke', color);
+    topEl.setAttribute('stroke-opacity', '0.5');
+    topEl.setAttribute('stroke-width', '0.5');
+    topEl.setAttribute('stroke-linejoin', 'round');
+    group.appendChild(topEl);
+
+    // Right shaded faces (right-side edges visible from this viewing angle)
+    [[1, 2], [2, 3]].forEach(([a, b]) => {
+        const faceEl = svgEl('polygon');
+        faceEl.setAttribute('points', [front[a], front[b], back[b], back[a]].map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(' '));
+        faceEl.setAttribute('fill', colorAlpha(color, 0.14));
+        faceEl.setAttribute('stroke', 'none');
+        group.appendChild(faceEl);
+    });
+
+    // Connecting depth edges (each front corner → matching back corner)
+    const edgePath = front.map(([x, y], i) =>
+        `M${x.toFixed(1)},${y.toFixed(1)} L${back[i][0].toFixed(1)},${back[i][1].toFixed(1)}`
+    ).join(' ');
+    const edgeEl = svgEl('path');
+    edgeEl.setAttribute('d', edgePath);
+    edgeEl.setAttribute('stroke', color);
+    edgeEl.setAttribute('stroke-opacity', '0.6');
+    edgeEl.setAttribute('stroke-width', (strokeW * 0.55).toFixed(1));
+    edgeEl.setAttribute('stroke-linecap', 'round');
+    edgeEl.setAttribute('fill', 'none');
+    group.appendChild(edgeEl);
+
+    // Front face — full brightness
+    const frontEl = svgEl('path');
+    frontEl.setAttribute('d', ptsPath(front));
+    frontEl.setAttribute('fill', colorAlpha(color, 0.05));
+    frontEl.setAttribute('stroke', color);
+    frontEl.setAttribute('stroke-width', strokeW.toFixed(1));
+    frontEl.setAttribute('stroke-linejoin', 'round');
+    group.appendChild(frontEl);
+}
+
+// ============================================================
+// SVG HELPERS
+// ============================================================
+const mainSvg = document.getElementById('main-svg');
+function svgEl(tag) { return document.createElementNS('http://www.w3.org/2000/svg', tag); }
+
+// ============================================================
+// BUILD GRID — single cell or full array
+// ============================================================
+function buildGrid() {
+    mainSvg.innerHTML = '';
+    cellElems = [];
+
+    if (showSingleCell) {
+        buildSingleCell();
+    } else {
+        buildFullGrid();
+    }
+    syncDFMPanel();
+}
+
+function buildSingleCell() {
+    const CW = 220, CH = 180;
+    const W = CW + 60, H = CH + 60;
+    setSVGSize(W, H);
+    addBg(W, H);
+
+    // Center the combined front+back centroid at SVG center
+    const cx = W / 2 - ISO_SOLO_X / 2;
+    const cy = H / 2 - ISO_SOLO_Y / 2;
+    const midPhysRow = Math.floor(ROWS / 2);
+
+    const g = svgEl('g');
+    mainSvg.appendChild(g);
+    const swf   = unitCellWallFactor();
+    const color = dfmColor(svgYtoMM(fgmMidSvgY));
+    draw3DCell(g, cx, cy, CW, CH, swf, color, cellStrokeWidth(swf), ISO_SOLO_X, ISO_SOLO_Y);
+    cellElems.push({ group: g, cx, cy, cellW: CW, cellH: CH, physRow: midPhysRow, isoX: ISO_SOLO_X, isoY: ISO_SOLO_Y });
+}
+
+function buildFullGrid() {
+    // Extra top padding so back faces of top row don't clip
+    const W = COLS * CELL_W + PAD_X * 2 + ISO_GRID_X;
+    const H = ROWS * CELL_H + PAD_Y * 2 + Math.abs(ISO_GRID_Y);
+    setSVGSize(W, H);
+    addBg(W, H);
+
+    for (let row = 0; row < ROWS; row++) {
+        for (let col = 0; col < COLS; col++) {
+            const cx      = PAD_X + col * CELL_W + CELL_W / 2;
+            // Shift all cells down so back-face tops have room above
+            const cy      = PAD_X + Math.abs(ISO_GRID_Y) + row * CELL_H + CELL_H / 2;
+            const physRow = ROWS - 1 - row;   // 0=base (SVG bottom), ROWS-1=tip (SVG top)
+            const cw = CELL_W * 0.88, ch = CELL_H * 0.88;
+
+            const g = svgEl('g');
+            mainSvg.appendChild(g);
+            const swf   = shapeWallFactor(physRow);
+            const color = dfmColor(effectiveThickness(physRow));
+            draw3DCell(g, cx, cy, cw, ch, swf, color, cellStrokeWidth(swf), ISO_GRID_X, ISO_GRID_Y);
+            cellElems.push({ group: g, cx, cy, cellW: cw, cellH: ch, physRow, isoX: ISO_GRID_X, isoY: ISO_GRID_Y });
+        }
+    }
+}
+
+function setSVGSize(w, h) {
+    mainSvg.setAttribute('width',   w);
+    mainSvg.setAttribute('height',  h);
+    mainSvg.setAttribute('viewBox', `0 0 ${w} ${h}`);
+}
+
+function addBg(w, h) {
+    const bg = svgEl('rect');
+    bg.setAttribute('width', w); bg.setAttribute('height', h); bg.setAttribute('fill', '#0C0C0D');
+    mainSvg.appendChild(bg);
+}
+
+// ============================================================
+// UPDATE CELL COLORS (DFM) + SHAPES (FGM + thickness)
+// ============================================================
+function updateCellColors() {
+    cellElems.forEach(({ group, cx, cy, physRow, cellW, cellH, isoX, isoY }) => {
+        const swf   = shapeWallFactor(physRow);
+        const color = dfmColor(effectiveThickness(physRow));
+        draw3DCell(group, cx, cy, cellW, cellH, swf, color, cellStrokeWidth(swf), isoX, isoY);
+    });
+    syncDFMPanel();
+}
+
+// ============================================================
+// DFM PANEL — live status summary
+// ============================================================
+function syncDFMPanel() {
+    const dot  = document.getElementById('dfm-dot');
+    const text = document.getElementById('dfm-text');
+    if (!dot || !text) return;
+
+    // Gather effective thickness for all unique physRows in current grid
+    const rows = showSingleCell ? [Math.floor(ROWS / 2)] : Array.from({ length: ROWS }, (_, i) => i);
+    const effVals = rows.map(pr => wallThickness * wallFactor(pr));
+    const minEff  = Math.min(...effVals);
+    const redCount    = effVals.filter(v => v < 0.3).length;
+    const orangeCount = effVals.filter(v => v >= 0.3 && v < 0.4).length;
+
+    if (minEff < 0.3) {
+        dot.style.background  = DFM.RED.color;
+        text.textContent = `${redCount} cell row${redCount !== 1 ? 's' : ''} unprintable — wall < 0.3mm at re-entrant joints. Increase wall thickness or reduce gradient.`;
+    } else if (minEff < 0.4) {
+        dot.style.background  = DFM.ORANGE.color;
+        text.textContent = `${orangeCount} cell row${orangeCount !== 1 ? 's' : ''} borderline (${minEff.toFixed(2)}mm). FDM extrusion may be inconsistent. Recommend ≥ 0.4mm at all joints.`;
+    } else if (minEff < 0.8) {
+        dot.style.background  = DFM.YELLOW.color;
+        text.textContent = `Within printable range. Minimum effective wall ${minEff.toFixed(2)}mm — consider increasing for FDM robustness.`;
+    } else {
+        dot.style.background  = DFM.GREEN.color;
+        text.textContent = `All cells printable. Minimum wall ${minEff.toFixed(2)}mm — comfortable margin for FDM/TPU.`;
+    }
+}
+
+// canvas starts empty — buildGrid() called on first cell selection
+
+// ============================================================
+// TEMPLATE LIBRARY ICONS
+// ============================================================
+function makeBowtieIconSVG(stroke) {
+    const ns = 'http://www.w3.org/2000/svg';
+    const s = document.createElementNS(ns, 'svg');
+    s.setAttribute('width','28'); s.setAttribute('height','28'); s.setAttribute('viewBox','0 0 28 28');
+    const p = document.createElementNS(ns, 'polygon');
+    p.setAttribute('points','2,3 26,3 21,14 26,25 2,25 7,14');
+    p.setAttribute('fill','none'); p.setAttribute('stroke', stroke || '#E5C11F');
+    p.setAttribute('stroke-width','1.8'); p.setAttribute('stroke-linejoin','round');
+    s.appendChild(p); return s;
+}
+function makeHexIconSVG(stroke) {
+    const ns = 'http://www.w3.org/2000/svg';
+    const s = document.createElementNS(ns, 'svg');
+    s.setAttribute('width','28'); s.setAttribute('height','28'); s.setAttribute('viewBox','0 0 28 28');
+    const p = document.createElementNS(ns, 'polygon');
+    p.setAttribute('points','7,2 21,2 28,14 21,26 7,26 0,14');
+    p.setAttribute('fill','none'); p.setAttribute('stroke', stroke || 'rgba(255,255,255,0.25)');
+    p.setAttribute('stroke-width','1.6');
+    s.appendChild(p); return s;
+}
+function makeDotIconSVG() {
+    const ns = 'http://www.w3.org/2000/svg';
+    const s = document.createElementNS(ns, 'svg');
+    s.setAttribute('width','28'); s.setAttribute('height','28'); s.setAttribute('viewBox','0 0 28 28');
+    const c = document.createElementNS(ns, 'circle');
+    c.setAttribute('cx','14'); c.setAttribute('cy','14'); c.setAttribute('r','8');
+    c.setAttribute('fill','none'); c.setAttribute('stroke','rgba(255,255,255,0.2)'); c.setAttribute('stroke-width','1.5');
+    s.appendChild(c); return s;
+}
+
+document.getElementById('icon-bowtie').appendChild(makeBowtieIconSVG('#E5C11F'));
+document.getElementById('icon-reentrant-hex').appendChild(makeHexIconSVG());
+['icon-chiral-node','icon-anti-chiral','icon-meander','icon-flexure-beam','icon-square-grid'].forEach(id => document.getElementById(id).appendChild(makeDotIconSVG()));
+document.getElementById('icon-honeycomb').appendChild(makeHexIconSVG());
+
+// ============================================================
+// ACCORDION
+// ============================================================
+document.querySelectorAll('.acc-trigger').forEach(btn => {
+    btn.addEventListener('click', () => {
+        const body  = document.getElementById('acc-' + btn.dataset.cat);
+        const isOpen = btn.classList.contains('open');
+        btn.classList.toggle('open', !isOpen);
+        body.classList.toggle('collapsed', isOpen);
+    });
+});
+
+// ============================================================
+// LLM CARD — two modes: 'general' (auto) and 'analyze' (button)
+// ============================================================
+const LLM_GENERAL = "Bowtie auxetic topology exhibits negative Poisson's ratio (–0.3 to –0.8). Under axial compression, re-entrant angles cause lateral contraction — producing passive grip without actuation. Suited for: adaptive contact surfaces, pressure-distributing interfaces, compliant end-effectors. Recommended wall thickness: 0.6–1.2mm for FDM/TPU.";
+
+function getAnalysisText() {
+    const baseWf = wallFactor(0);
+    const tipWf  = wallFactor(Math.max(ROWS - 1, 1));
+    const baseTh = (wallThickness * baseWf).toFixed(2);
+    const tipTh  = (wallThickness * tipWf).toFixed(2);
+    const tipThNum = parseFloat(tipTh);
+
+    if (wallThickness < 0.3) {
+        return `Unprintable configuration — all cells below 0.3mm. Re-entrant joints will fail during FDM extrusion. Increase base wall thickness to ≥ 0.5mm for TPU/FDM compatibility.`;
+    }
+    if (Math.abs(fgmTipMM - fgmBaseMM) > 0.15) {
+        const ratio = (parseFloat(baseTh) / Math.max(tipThNum, 0.01)).toFixed(1);
+        const warn  = tipThNum < 0.3
+            ? '⚠ Tip cells unprintable — increase slider or reduce gradient slope.'
+            : tipThNum < 0.4
+            ? 'Tip cells borderline — 0.2mm layer height and careful retraction settings recommended for FDM.'
+            : 'All cells within FDM/TPU printable range.';
+        return `Functionally graded array: base wall ${baseTh}mm, tip wall ${tipTh}mm — ${ratio}× compliance differential. Tip will deform first under load, producing progressive contact response. ${warn}`;
+    }
+    return `Uniform ${COLS}×${ROWS} bowtie array at ${wallThickness.toFixed(1)}mm wall thickness. Estimated compliance uniform across array. All cells within FDM/TPU printable range for 0.4mm nozzle. Consider applying an FGM gradient for progressive stiffness and improved fingertip conformity.`;
+}
+
+const llmCard = document.getElementById('llm-card');
+const llmBody = document.getElementById('llm-text');
+let   llmTimer = null;
+
+function showLLMCard(mode) {
+    const titleEl    = document.getElementById('llm-title-text');
+    const subtitleEl = document.getElementById('llm-subtitle-text');
+    const text       = mode === 'analyze' ? getAnalysisText() : LLM_GENERAL;
+    titleEl.textContent    = mode === 'analyze' ? 'Analysis' : 'Context';
+    subtitleEl.textContent = mode === 'analyze' ? ' — current configuration' : ' — Bowtie Auxetic';
+
+    llmCard.classList.add('visible');
+    llmBody.textContent = '';
+    if (llmTimer) clearInterval(llmTimer);
+    let i = 0;
+    llmTimer = setInterval(() => {
+        llmBody.textContent = text.slice(0, i++);
+        if (i > text.length) clearInterval(llmTimer);
+    }, 14);
+}
+
+function hideLLMCard() {
+    llmCard.classList.remove('visible');
+    if (llmTimer) clearInterval(llmTimer);
+}
+
+document.getElementById('llm-close').addEventListener('click', hideLLMCard);
+
+// Cell card selection — auto shows general LLM, shows 1 unit cell
+document.querySelectorAll('.cell-card').forEach(card => {
+    card.addEventListener('click', () => {
+        document.querySelectorAll('.cell-card').forEach(c => c.classList.remove('selected'));
+        card.classList.add('selected');
+        if (card.dataset.cell === 'bowtie') {
+            showSingleCell = true;
+            buildGrid();
+            showLLMCard('general');
+        } else {
+            hideLLMCard();
+        }
+    });
+});
+
+// LLM card hidden on load — triggered by first cell selection
+
+// ============================================================
+// APPLY ARRAY — expands to full grid
+// ============================================================
+document.getElementById('apply-array-btn').addEventListener('click', () => {
+    const xVal = parseInt(document.getElementById('x-count').value, 10);
+    const yVal = parseInt(document.getElementById('y-count').value, 10);
+    if (xVal >= 1 && xVal <= 12) COLS = xVal;
+    if (yVal >= 1 && yVal <= 12) ROWS = yVal;
+    showSingleCell = false;
+    buildGrid();
+    hideLLMCard();
+});
+
+// ============================================================
+// FGM GRAPH — two draggable handles
+// Left handle = base thickness (synced with slider)
+// Right handle = tip thickness (independent)
+// ============================================================
+const fgmSvgEl    = document.getElementById('fgm-svg');
+const fgmCurveEl  = document.getElementById('fgm-curve');
+const fgmBaseEl   = document.getElementById('fgm-base-handle');
+const fgmBaseHit  = document.getElementById('fgm-base-hit');
+const fgmMidEl    = document.getElementById('fgm-mid-handle');
+const fgmMidHit   = document.getElementById('fgm-mid-hit');
+const fgmEndEl    = document.getElementById('fgm-end-handle');
+const fgmEndHit   = document.getElementById('fgm-end-hit');
+const fgmGuide    = document.getElementById('fgm-guide');
+
+// all Y values start at 55 ≈ 0.9mm on the 0.1–2.0mm scale
+const FGM = { leftX: 28, leftY: 55, midX: 130, midY: 55, rightX: 232, rightY: 55 };
+
+function renderFGM() {
+    const { leftX, leftY, midX, midY, rightX, rightY } = FGM;
+    // symmetric control points at x=130 ensure curve passes through (130, midY) at t=0.5
+    const cpY = (8 * midY - leftY - rightY) / 6;
+    fgmCurveEl.setAttribute('d', `M${leftX},${leftY} C130,${cpY} 130,${cpY} ${rightX},${rightY}`);
+    fgmBaseEl.setAttribute('cx', leftX);  fgmBaseEl.setAttribute('cy', leftY);
+    fgmBaseHit.setAttribute('cx', leftX); fgmBaseHit.setAttribute('cy', leftY);
+    fgmMidEl.setAttribute('cx', midX);    fgmMidEl.setAttribute('cy', midY);
+    fgmMidHit.setAttribute('cx', midX);   fgmMidHit.setAttribute('cy', midY);
+    fgmEndEl.setAttribute('cx', rightX);  fgmEndEl.setAttribute('cy', rightY);
+    fgmEndHit.setAttribute('cx', rightX); fgmEndHit.setAttribute('cy', rightY);
+    fgmGuide.setAttribute('x1', leftX);   fgmGuide.setAttribute('y1', leftY);
+    fgmGuide.setAttribute('x2', rightX);  fgmGuide.setAttribute('y2', rightY);
+    fgmBaseMM     = svgYtoMM(FGM.leftY);
+    fgmTipMM      = svgYtoMM(FGM.rightY);
+    fgmMidSvgY    = FGM.midY;
+    wallThickness = fgmBaseMM;
+    updateCellColors();
+}
+
+renderFGM();
+
+// Delta-based drag — robust regardless of panel scroll position
+let dragging         = null;
+let dragStartClientY = 0;
+let dragStartSvgY    = 0;
+
+function svgScaleY() {
+    const vb   = fgmSvgEl.viewBox.baseVal;
+    const rect = fgmSvgEl.getBoundingClientRect();
+    return vb.height / rect.height;
+}
+
+function startDrag(handle, startY) {
+    return e => { dragging = handle; dragStartClientY = e.clientY; dragStartSvgY = startY(); e.preventDefault(); };
+}
+fgmBaseHit.addEventListener('mousedown', startDrag('base', () => FGM.leftY));
+fgmMidHit.addEventListener('mousedown',  startDrag('mid',  () => FGM.midY));
+fgmEndHit.addEventListener('mousedown',  startDrag('end',  () => FGM.rightY));
+
+window.addEventListener('mousemove', e => {
+    if (!dragging) return;
+    const newY = Math.max(10, Math.min(88, dragStartSvgY + (e.clientY - dragStartClientY) * svgScaleY()));
+    if (dragging === 'base') FGM.leftY  = newY;
+    if (dragging === 'mid')  FGM.midY   = newY;
+    if (dragging === 'end')  FGM.rightY = newY;
+    renderFGM();
+    // When base moves, sync slider + evaluator UI
+    if (dragging === 'base') {
+        const mm = svgYtoMM(FGM.leftY);
+        slider.value = mm;
+        readout.textContent = mm.toFixed(1);
+        evalBox.textContent = evaluatorText(mm);
+    }
+});
+
+window.addEventListener('mouseup', () => { dragging = null; });
+
+// ============================================================
+// TAB SWITCHING
+// ============================================================
+const tabPanels = {
+    scene: document.getElementById('tab-scene'), shape: document.getElementById('tab-shape'),
+    evaluate: document.getElementById('tab-evaluate'), export: document.getElementById('tab-export'),
+};
+function switchTab(name) {
+    document.querySelectorAll('.ag-stage-tab').forEach(t => t.classList.toggle('ag-active', t.dataset.tab === name));
+    Object.entries(tabPanels).forEach(([k, el]) => el.classList.toggle('ag-tab-panel--hidden', k !== name));
+}
+document.querySelectorAll('.ag-stage-tab').forEach(tab => tab.addEventListener('click', () => switchTab(tab.dataset.tab)));
+
+// ============================================================
+// EVALUATE TAB — slider, evaluator, DFM, analyze
+// ============================================================
+const slider   = document.getElementById('thickness-slider');
+const readout  = document.getElementById('thickness-readout');
+const evalBox  = document.getElementById('evaluator-box');
+
+function evaluatorText(t) {
+    if (t >= 0.6) return `Wall thickness ${t.toFixed(1)}mm → estimated grip force 0.28N at 2mm compression.`;
+    if (t >= 0.3) return `↓ Wall thickness ${t.toFixed(1)}mm → ~35% less actuation force. Grip conformity increases at contact tips.`;
+    return `↓ Wall thickness ${t.toFixed(1)}mm → ~60% less actuation force. Approaching minimum printable threshold.`;
+}
+
+function syncEvaluator(t) {
+    FGM.leftY = mmToSvgY(t);
+    renderFGM();                          // derives wallThickness/fgmBaseMM, redraws cells
+    readout.textContent = t.toFixed(1);
+    evalBox.textContent = evaluatorText(t);
+}
+
+slider.addEventListener('input', () => syncEvaluator(parseFloat(slider.value)));
+
+// Prime evaluator + DFM on load
+syncEvaluator(wallThickness);
+
+// Analyze Shape button → contextual LLM analysis
+document.getElementById('analyze-btn').addEventListener('click', () => showLLMCard('analyze'));
+
+// Undo — animate slider back to 0.9
+function runUndo() {
+    const from = parseFloat(slider.value);
+    const to   = 0.9;
+    const dur  = 420;
+    const t0   = performance.now();
+    function step(now) {
+        const p   = Math.min((now - t0) / dur, 1);
+        const val = from + (to - from) * (1 - Math.pow(1 - p, 3));
+        slider.value = val;
+        syncEvaluator(val);
+        if (p < 1) requestAnimationFrame(step);
+    }
+    requestAnimationFrame(step);
+}
+document.getElementById('undo-btn').addEventListener('click', runUndo);
+
+// Pin to Board
+let pinCount = 0;
+document.getElementById('pin-btn').addEventListener('click', () => {
+    pinCount++;
+    document.getElementById('pin-divider').style.display = '';
+    const col = document.getElementById('pin-column');
+    col.style.cssText = 'display:flex;flex-direction:column;gap:8px;';
+
+    const card  = document.createElement('div');
+    card.className = 'pin-card';
+    const thumb = document.createElement('div');
+    thumb.className = 'pin-thumb';
+    thumb.appendChild(buildMiniSVG());
+    const meta  = document.createElement('div');
+    meta.className = 'pin-meta';
+    const now   = new Date();
+    meta.textContent = `Snapshot ${pinCount}\n${now.toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' })}`;
+    card.appendChild(thumb); card.appendChild(meta);
+    document.getElementById('pin-cards').insertBefore(card, document.getElementById('pin-cards').firstChild);
+});
+
+function buildMiniSVG() {
+    const ns = 'http://www.w3.org/2000/svg';
+    const W = COLS * CELL_W + PAD_X * 2, H = ROWS * CELL_H + PAD_Y * 2;
+    const s = document.createElementNS(ns, 'svg');
+    s.setAttribute('width','46'); s.setAttribute('height','34');
+    s.setAttribute('viewBox', showSingleCell ? '0 0 260 220' : `0 0 ${W} ${H}`);
+    const bg = document.createElementNS(ns, 'rect');
+    bg.setAttribute('width', showSingleCell ? 260 : W);
+    bg.setAttribute('height', showSingleCell ? 220 : H);
+    bg.setAttribute('fill','#0C0C0D');
+    s.appendChild(bg);
+    cellElems.forEach(({ physRow, cx, cy }) => {
+        const wf  = wallFactor(physRow);
+        const eff = wallThickness * wf;
+        const p   = document.createElementNS(ns, 'polygon');
+        const mcx = showSingleCell ? 130 : cx;
+        const mcy = showSingleCell ? 110 : cy;
+        const mw  = showSingleCell ? 200 : CELL_W * 0.88;
+        const mh  = showSingleCell ? 160 : CELL_H * 0.88;
+        p.setAttribute('points',          bowtiePoints(mcx, mcy, mw, mh, wf));
+        p.setAttribute('fill',            'none');
+        p.setAttribute('stroke',          dfmColor(eff));
+        p.setAttribute('stroke-width',    cellStrokeWidth(wf) * 1.8);
+        p.setAttribute('stroke-linejoin', 'round');
+        s.appendChild(p);
+    });
+    return s;
+}
+
+// ============================================================
+// EXPORT TAB
+// ============================================================
+const FORMAT_SIZES = { STL: '~2.4 MB', OBJ: '~1.8 MB', '3MF': '~3.1 MB', STEP: '~4.6 MB' };
+document.getElementById('format-select').addEventListener('change', e => {
+    document.getElementById('size-estimate').textContent = FORMAT_SIZES[e.target.value] || '~2.4 MB';
+    document.getElementById('export-label').textContent  = `Export ${e.target.value}`;
+});
+
+const exportBtn = document.getElementById('export-btn');
+exportBtn.addEventListener('click', () => {
+    if (exportBtn.disabled) return;
+    exportBtn.disabled = true;
+    document.getElementById('export-spinner').classList.add('visible');
+    document.getElementById('export-label').textContent = 'Exporting…';
+    setTimeout(() => {
+        document.getElementById('export-spinner').classList.remove('visible');
+        document.getElementById('export-label').textContent = '✓ Export Complete';
+        exportBtn.disabled = false;
+        setTimeout(() => {
+            document.getElementById('export-label').textContent = `Export ${document.getElementById('format-select').value}`;
+        }, 2000);
+    }, 1500);
+});
+
+// ============================================================
+// GUMBALL — zoom slider + view preset buttons
+// ============================================================
+document.querySelectorAll('.gb-view-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        document.querySelectorAll('.gb-view-btn').forEach(b => b.classList.remove('gb-active'));
+        btn.classList.add('gb-active');
+    });
+});
+
+// ============================================================
+// KEYBOARD — Cmd+Z → undo (capture phase, bypasses input focus)
+// ============================================================
+window.addEventListener('keydown', e => {
+    if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key === 'z') {
+        e.preventDefault(); e.stopPropagation();
+        switchTab('evaluate');
+        runUndo();
+    }
+}, true);
+
+// ============================================================
+// RESEARCH VALIDATION — fake LLM chat
+// Each entry has: text (plain, for typewriter) + html (with links, swapped in when done)
+// ============================================================
+const RV_CANNED = {
+    "What can this shape be used for?": {
+        text:
+`TOPOLOGY
+3×5 bowtie auxetic · 0.9mm wall · est. Poisson's ratio –0.4 to –0.6 · lateral contraction under axial load = passive grip without actuation.
+
+TOP USE CASE
+Conformal fingertip pads for soft robotic end-effectors. 3-column layout matches human fingertip contact patch width. Validated for re-entrant topology in FDM polymers by Evans & Alderson (2000).
+
+NEXT STEPS
+→ Apply FGM gradient: 0.5mm tip / 1.2mm base
+→ Test at 3mm extrusion depth in TPU 95A on 0.4mm nozzle
+→ Compare grip force at 1mm and 2mm compression before scaling`,
+        html:
+`<strong>Topology</strong>3×5 bowtie auxetic · 0.9mm wall · est. Poisson's ratio –0.4 to –0.6 · lateral contraction under axial load = passive grip without actuation.<strong>Top Use Case</strong>Conformal fingertip pads for soft robotic end-effectors. 3-column layout matches human fingertip contact patch width. Validated for re-entrant topology in FDM polymers by <a href="https://doi.org/10.1002/1521-4095(200005)12:9<617::AID-ADMA617>3.0.CO;2-3" target="_blank" rel="noopener">Evans &amp; Alderson (2000)</a>.<strong>Next Steps</strong>→ Apply FGM gradient: 0.5mm tip / 1.2mm base<br>→ Test at 3mm extrusion depth in TPU 95A on 0.4mm nozzle<br>→ Compare grip force at 1mm and 2mm compression before scaling`,
+    },
+    "What papers reference this topology?": {
+        text:
+`FOUNDATIONAL
+Lakes (1987) — Foam structures with a negative Poisson's ratio. Science 235(4792). Established the re-entrant mechanism your bowtie geometry is based on.
+
+DESIGN RULES
+Evans & Alderson (2000) — Auxetic materials: functional materials and structures from lateral thinking. Adv. Materials 12(9). FDM-relevant fabrication bounds for re-entrant cells at your wall geometry.
+
+MECHANICS MODEL
+Gibson & Ashby (1997) — Cellular Solids, Ch. 4. Effective stiffness model for re-entrant honeycombs — use to estimate compliance and energy absorption at your 3×5 count.`,
+        html:
+`<strong>Foundational</strong><a href="https://doi.org/10.1126/science.235.4792.1038" target="_blank" rel="noopener">Lakes, R.S. (1987) — Foam structures with a negative Poisson's ratio. Science 235(4792).</a> Established the re-entrant mechanism your bowtie geometry is based on.<strong>Design Rules</strong><a href="https://doi.org/10.1002/1521-4095(200005)12:9<617::AID-ADMA617>3.0.CO;2-3" target="_blank" rel="noopener">Evans, K.E. &amp; Alderson, A. (2000) — Auxetic materials. Advanced Materials 12(9).</a> FDM-relevant fabrication bounds for re-entrant cells at your wall geometry.<strong>Mechanics Model</strong><a href="https://www.cambridge.org/9780521499118" target="_blank" rel="noopener">Gibson, L.J. &amp; Ashby, M.F. (1997) — Cellular Solids, Ch. 4.</a> Effective stiffness model for re-entrant honeycombs — use to estimate compliance and energy absorption at your 3×5 count.`,
+    },
+    "What are possible use cases?": {
+        text:
+`SOFT ROBOTICS
+Passive grip fingertips. Lateral contraction at contact = grip without actuation. 0.7–1.0mm wall in TPU 95A. 3-column layout matches fingertip patch width.
+
+WEARABLES
+Insoles + orthotic pads. Gradient from stiff base → compliant tip matches heel-to-toe load path. Evans & Alderson (2000).
+
+IMPACT ABSORPTION
+Helmet liners + padding. Cells collapse inward, distribute energy laterally. 20–35% higher specific absorption vs. conventional honeycomb at equal density.
+
+NEXT STEPS
+→ Pin this baseline
+→ Compare vs. 0.5mm tip / 1.2mm base FGM variant at same 3×5 count`,
+        html:
+`<strong>Soft Robotics</strong>Passive grip fingertips. Lateral contraction at contact = grip without actuation. 0.7–1.0mm wall in TPU 95A. 3-column layout matches fingertip patch width.<strong>Wearables</strong>Insoles + orthotic pads. Gradient from stiff base → compliant tip matches heel-to-toe load path. <a href="https://doi.org/10.1002/1521-4095(200005)12:9<617::AID-ADMA617>3.0.CO;2-3" target="_blank" rel="noopener">Evans &amp; Alderson (2000)</a>.<strong>Impact Absorption</strong>Helmet liners + padding. Cells collapse inward, distribute energy laterally. 20–35% higher specific absorption vs. conventional honeycomb at equal density (<a href="https://www.cambridge.org/9780521499118" target="_blank" rel="noopener">Gibson &amp; Ashby, 1997</a>).<strong>Next Steps</strong>→ Pin this baseline<br>→ Compare vs. 0.5mm tip / 1.2mm base FGM variant at same 3×5 count`,
+    },
+};
+const RV_FALLBACK = {
+    text:
+`TOPOLOGY SUMMARY
+3×5 bowtie auxetic · 0.9mm wall · est. Poisson's ratio –0.4 to –0.6 · within passive grip range per Evans & Alderson (2000).
+
+KEY PARAMETERS
+Wall thickness → compliance vs. printability trade-off
+Re-entrant angle → stiffness ratio
+Array count → contact area + grip force
+Printable range (FDM/TPU, 0.4mm nozzle): 0.6–1.2mm
+
+NEXT STEPS
+→ Run Print Validation
+→ Apply FGM gradient via the modifier panel
+→ Pin baseline snapshot before iterating`,
+    html:
+`<strong>Topology Summary</strong>3×5 bowtie auxetic · 0.9mm wall · est. Poisson's ratio –0.4 to –0.6 · within passive grip range per <a href="https://doi.org/10.1002/1521-4095(200005)12:9<617::AID-ADMA617>3.0.CO;2-3" target="_blank" rel="noopener">Evans &amp; Alderson (2000)</a>.<strong>Key Parameters</strong>Wall thickness → compliance vs. printability trade-off<br>Re-entrant angle → stiffness ratio<br>Array count → contact area + grip force<br>Printable range (FDM/TPU, 0.4mm nozzle): 0.6–1.2mm<strong>Next Steps</strong>→ Run Print Validation<br>→ Apply FGM gradient via the modifier panel<br>→ Pin baseline snapshot before iterating`,
+};
+
+const rvInput       = document.getElementById('rv-input');
+const rvSuggestions = document.getElementById('rv-suggestions');
+const rvSendBtn     = document.getElementById('rv-send-btn');
+const rvResponse    = document.getElementById('rv-response');
+let   rvTimer       = null;
+
+function showRVSuggestions() {
+    if (rvInput.value.trim() === '') rvSuggestions.classList.add('visible');
+}
+function hideRVSuggestions() {
+    rvSuggestions.classList.remove('visible');
+}
+
+rvInput.addEventListener('focus', showRVSuggestions);
+rvInput.addEventListener('input', () => {
+    if (rvInput.value.trim() !== '') hideRVSuggestions();
+    else showRVSuggestions();
+});
+rvInput.addEventListener('blur', () => {
+    // small delay so suggestion clicks register before blur fires
+    setTimeout(hideRVSuggestions, 150);
+});
+
+document.querySelectorAll('.rv-suggestion').forEach(s => {
+    s.addEventListener('mousedown', e => {
+        e.preventDefault();
+        rvInput.value = s.dataset.q;
+        hideRVSuggestions();
+        rvInput.focus();
+    });
+});
+
+function sendRVQuery() {
+    const q        = rvInput.value.trim();
+    if (!q) return;
+    const response = RV_CANNED[q] ?? RV_FALLBACK;
+    rvInput.value  = '';
+    hideRVSuggestions();
+    rvResponse.style.display = 'block';
+    rvResponse.textContent   = '';
+    if (rvTimer) clearInterval(rvTimer);
+    let i = 0;
+    rvTimer = setInterval(() => {
+        rvResponse.textContent = response.text.slice(0, i++);
+        if (i > response.text.length) {
+            clearInterval(rvTimer);
+            // swap plain text for HTML version (adds clickable paper links)
+            rvResponse.innerHTML = response.html;
+        }
+    }, 14);
+}
+
+rvSendBtn.addEventListener('click', sendRVQuery);
+rvInput.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendRVQuery(); }
+});
+</script>
+</body>
+</html>
